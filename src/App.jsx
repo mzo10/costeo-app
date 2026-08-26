@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Pencil, X, Check, Package, ChefHat, TriangleAlert, ChevronRight, ShoppingCart, LineChart, PackagePlus, Settings2, LogOut, Store, ArrowRight, Copy, KeyRound, ArrowLeft, UploadCloud, CheckCircle2, FileText, Sparkles, Loader2, AlertCircle, Receipt, Minus, Search, Mail } from 'lucide-react';
+import { Plus, Trash2, Pencil, X, Check, Package, ChefHat, TriangleAlert, ChevronRight, ChevronUp, ShoppingCart, LineChart, PackagePlus, Settings2, LogOut, Store, ArrowRight, Copy, KeyRound, ArrowLeft, UploadCloud, CheckCircle2, FileText, Sparkles, Loader2, AlertCircle, Receipt, Minus, Search, Mail } from 'lucide-react';
 import Papa from 'papaparse';
 import { supabase } from './supabaseClient';
 
@@ -252,6 +252,45 @@ function GlobalCss() {
       .ingredient-row .ing-del { flex: 0 0 auto; }
       .header-subtitle { }
       @media (max-width: 480px) { .header-subtitle { display: none; } }
+
+      /* --- Vender (POS): app-like bottom sheet on mobile, docked side panel on desktop --- */
+      .pos-layout { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+      .pos-products { flex: 2 1 340px; min-width: 0; }
+      .pos-cart { flex: 1 1 320px; min-width: 260px; }
+      .pos-cart-handle { display: none; }
+      .pos-categories { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+
+      @media (max-width: 879px) {
+        .pos-products { flex-basis: 100%; padding-bottom: 84px; }
+        .pos-cart {
+          position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
+          background: ${COLORS.surface}; border-radius: 20px 20px 0 0; padding: 0 !important;
+          box-shadow: 0 -10px 34px rgba(6,13,58,0.18);
+          max-height: 82vh; overflow-y: auto;
+          padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
+          transform: translateY(calc(100% - 62px));
+          transition: transform .28s cubic-bezier(.32,.72,0,1);
+        }
+        .pos-cart.pos-cart-empty { transform: translateY(100%); box-shadow: none; }
+        .pos-cart.expanded { transform: translateY(0); }
+        .pos-cart-handle {
+          display: flex; align-items: center; justify-content: space-between; gap: 10px;
+          padding: 14px 18px; cursor: pointer; user-select: none; position: relative;
+        }
+        .pos-cart-handle::before {
+          content: ''; position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+          width: 36px; height: 4px; border-radius: 2px; background: ${COLORS.border};
+        }
+        .pos-cart-body { padding: 0 18px 18px; }
+        .pos-cart-summary-inline { display: none; }
+        .pos-categories { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
+        .pos-categories::-webkit-scrollbar { display: none; }
+      }
+      @media (min-width: 880px) {
+        .pos-cart { position: sticky; top: 20px; }
+        .pos-cart-handle { display: none !important; }
+        .pos-cart-body { padding: 0; }
+      }
       @keyframes radarspin { to { transform: rotate(360deg); } }
       @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
       .fade-up { animation: fadeUp .35s ease both; }
@@ -708,6 +747,7 @@ function VenderTab({ data, setData }) {
   const [necesitaFactura, setNecesitaFactura] = useState(false);
   const [cliente, setCliente] = useState({ nombre: '', identificacion: '', email: '', telefono: '' });
   const [ventaHecha, setVentaHecha] = useState(0);
+  const [cartExpanded, setCartExpanded] = useState(false);
 
   if (data.productos.length === 0) {
     return (
@@ -766,7 +806,7 @@ function VenderTab({ data, setData }) {
       }
       return { ...d, ventas: [...nuevasVentas, ...d.ventas], insumos, facturasPendientes };
     });
-    setCart({}); setMetodoPago(''); setNecesitaFactura(false); setCliente({ nombre: '', identificacion: '', email: '', telefono: '' });
+    setCart({}); setMetodoPago(''); setNecesitaFactura(false); setCliente({ nombre: '', identificacion: '', email: '', telefono: '' }); setCartExpanded(false);
     setVentaHecha(total); setTimeout(() => setVentaHecha(0), 3500);
   };
 
@@ -798,16 +838,16 @@ function VenderTab({ data, setData }) {
         </div>
       )}
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20 }}>
-        <div style={{ flex: '2 1 340px', minWidth: 0 }}>
+      <div className="pos-layout">
+        <div className="pos-products">
           <div style={{ position: 'relative', marginBottom: 12 }}>
             <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: COLORS.ink4 }} />
             <input style={{ ...inputStyle, paddingLeft: 34 }} placeholder="Buscar productos..." value={busqueda} onChange={(e) => setBusqueda(e.target.value)} />
           </div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+          <div className="pos-categories">
             {categorias.map((c) => (
               <button key={c} onClick={() => setCategoria(c)} style={{
-                padding: '6px 13px', borderRadius: 20, fontSize: 12.5, cursor: 'pointer',
+                padding: '6px 13px', borderRadius: 20, fontSize: 12.5, cursor: 'pointer', flexShrink: 0,
                 border: `1px solid ${categoria === c ? COLORS.navy : COLORS.border}`,
                 background: categoria === c ? COLORS.navy : COLORS.surface,
                 color: categoria === c ? '#fff' : COLORS.ink2, fontWeight: 600,
@@ -838,9 +878,19 @@ function VenderTab({ data, setData }) {
           </div>
         </div>
 
-        <div style={{ flex: '1 1 280px', minWidth: 260 }}>
-          <div style={cardStyle}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: cartItems.length ? 10 : 0 }}>
+        <div className={`pos-cart card-lift ${cartExpanded ? 'expanded' : ''} ${cartItems.length === 0 ? 'pos-cart-empty' : ''}`} style={{ ...cardStyle, marginBottom: 0 }}>
+          <div className="pos-cart-handle" onClick={() => setCartExpanded((v) => !v)}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.ink, paddingTop: 6 }}>
+              {cartItems.reduce((s, it) => s + it.cantidad, 0)} producto{cartItems.reduce((s, it) => s + it.cantidad, 0) === 1 ? '' : 's'}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingTop: 6 }}>
+              <span style={{ fontFamily: FONT_MONO, fontSize: 17, fontWeight: 800, color: COLORS.ink }}>{money(total)}</span>
+              <ChevronUp size={16} color={COLORS.ink3} style={{ transform: cartExpanded ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
+            </div>
+          </div>
+
+          <div className="pos-cart-body">
+            <div className="pos-cart-summary-inline" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: cartItems.length ? 10 : 0 }}>
               <div style={{ fontSize: 12, color: COLORS.ink3 }}>{cartItems.length > 0 ? `${cartItems.reduce((s, it) => s + it.cantidad, 0)} producto(s)` : 'Ticket vacío'}</div>
               <div style={{ fontFamily: FONT_MONO, fontSize: 22, fontWeight: 800, color: COLORS.ink, letterSpacing: '-0.5px' }}>{money(total)}</div>
             </div>
