@@ -1940,6 +1940,15 @@ function VentasTab({ data, setData, costoProducto, comisionPct }) {
 /* ---------- Finanzas tab ---------- */
 function FinanzasTab({ data, setData, costoProducto, comisionPct }) {
   const [periodo, setPeriodo] = useState('todo');
+  const [mesSeleccionado, setMesSeleccionado] = useState(todayStr().slice(0, 7)); // YYYY-MM
+  const [diaSeleccionado, setDiaSeleccionado] = useState(todayStr());
+
+  const rangoMes = (() => {
+    const [y, m] = mesSeleccionado.split('-').map(Number);
+    const inicio = `${mesSeleccionado}-01`;
+    const fin = new Date(y, m, 0).toISOString().slice(0, 10); // último día del mes
+    return { inicio, fin };
+  })();
 
   const cutoff = (() => {
     const d = new Date();
@@ -1950,17 +1959,28 @@ function FinanzasTab({ data, setData, costoProducto, comisionPct }) {
     return d.toISOString().slice(0, 10);
   })();
 
-  const ventasFiltradas = data.ventas.filter((v) => {
+  const enPeriodo = (fecha) => {
     if (periodo === 'todo') return true;
-    if (periodo === 'hoy') return v.fecha === cutoff;
-    return v.fecha >= cutoff;
-  });
-  const gastosFiltrados = (data.gastosOperativos || []).filter((g) => {
-    if (periodo === 'todo') return true;
-    if (periodo === 'hoy') return g.fecha === cutoff;
-    return g.fecha >= cutoff;
-  });
+    if (periodo === 'hoy') return fecha === cutoff;
+    if (periodo === 'dia') return fecha === diaSeleccionado;
+    if (periodo === 'mes') return fecha >= rangoMes.inicio && fecha <= rangoMes.fin;
+    return fecha >= cutoff;
+  };
+
+  const ventasFiltradas = data.ventas.filter((v) => enPeriodo(v.fecha));
+  const gastosFiltrados = (data.gastosOperativos || []).filter((g) => enPeriodo(g.fecha));
   const gastosOperativosTotal = gastosFiltrados.reduce((sum, g) => sum + num(g.monto), 0);
+
+  // Resumen del mes calendario actual — siempre visible, sin importar el filtro de arriba
+  const inicioMesActual = todayStr().slice(0, 7) + '-01';
+  const hoyLegible = new Date().toLocaleDateString('es-CR', { month: 'long', year: 'numeric' });
+  const resumenMesFijo = data.ventas.filter((v) => v.fecha >= inicioMesActual).reduce((acc, v) => {
+    const plat = data.plataformas.find((p) => p.id === v.plataformaId);
+    if (!plat) return acc;
+    const bruto = v.precioUnit * v.cantidad;
+    const neto = bruto - bruto * (comisionPct(plat) / 100);
+    return { bruto: acc.bruto + bruto, neto: acc.neto + neto };
+  }, { bruto: 0, neto: 0 });
 
   let ingresoBruto = 0, comisionServicioTotal = 0, comisionPublicidadTotal = 0, cogs = 0;
   const porPlataforma = {};
@@ -1999,7 +2019,8 @@ function FinanzasTab({ data, setData, costoProducto, comisionPct }) {
   const utilidadBruta = ingresoNeto - cogs;
   const margenGlobal = ingresoNeto ? (utilidadBruta / ingresoNeto) * 100 : null;
   const costosFijos = (data.costosFijosDetalle || []).reduce((s, c) => s + num(c.monto), 0) || num(data.costosFijos);
-  const diasPeriodo = periodo === 'hoy' ? 1 : periodo === '7' ? 7 : periodo === '30' ? 30 : null;
+  const diasEnMesSeleccionado = new Date(...mesSeleccionado.split('-').map(Number), 0).getDate();
+  const diasPeriodo = periodo === 'hoy' || periodo === 'dia' ? 1 : periodo === '7' ? 7 : periodo === '30' ? 30 : periodo === 'mes' ? diasEnMesSeleccionado : null;
   const costosFijosPeriodo = diasPeriodo !== null ? (costosFijos / 30) * diasPeriodo : costosFijos;
   const utilidadNeta = utilidadBruta - costosFijosPeriodo - gastosOperativosTotal;
   const rankingProductos = Object.values(porProducto).sort((a, b) => b.utilidad - a.utilidad);
@@ -2028,11 +2049,36 @@ function FinanzasTab({ data, setData, costoProducto, comisionPct }) {
         title="Finanzas"
         desc="Rentabilidad real: ventas menos comisiones de plataformas, menos costo de insumos."
         action={
-          <select style={{ ...inputStyle, width: 'auto' }} value={periodo} onChange={(e) => setPeriodo(e.target.value)}>
-            <option value="todo">Todo</option><option value="hoy">Hoy</option><option value="7">Últimos 7 días</option><option value="30">Últimos 30 días</option>
-          </select>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <select style={{ ...inputStyle, width: 'auto' }} value={periodo} onChange={(e) => setPeriodo(e.target.value)}>
+              <option value="todo">Todo</option>
+              <option value="hoy">Hoy</option>
+              <option value="7">Últimos 7 días</option>
+              <option value="30">Últimos 30 días</option>
+              <option value="mes">Un mes específico</option>
+              <option value="dia">Un día específico</option>
+            </select>
+            {periodo === 'mes' && <input style={{ ...inputStyle, width: 'auto' }} type="month" value={mesSeleccionado} onChange={(e) => setMesSeleccionado(e.target.value)} />}
+            {periodo === 'dia' && <input style={{ ...inputStyle, width: 'auto' }} type="date" value={diaSeleccionado} onChange={(e) => setDiaSeleccionado(e.target.value)} />}
+          </div>
         }
       />
+
+      <div style={{ ...cardStyle, background: COLORS.surfaceDim }}>
+        <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em', color: COLORS.ink3, fontWeight: 700, marginBottom: 8 }}>
+          Resumen de {hoyLegible} — este mes calendario, siempre visible
+        </div>
+        <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontSize: 10.5, color: COLORS.ink4, fontWeight: 600, textTransform: 'uppercase' }}>Ventas brutas</div>
+            <div style={{ fontFamily: FONT_MONO, fontSize: 19, fontWeight: 800 }}>{money(resumenMesFijo.bruto)}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 10.5, color: COLORS.ink4, fontWeight: 600, textTransform: 'uppercase' }}>Ventas netas</div>
+            <div style={{ fontFamily: FONT_MONO, fontSize: 19, fontWeight: 800, color: COLORS.greenDark }}>{money(resumenMesFijo.neto)}</div>
+          </div>
+        </div>
+      </div>
 
       {insumosBajos.length > 0 && (
         <div style={{ ...cardStyle, borderColor: '#FCA5A5', background: COLORS.redDim }} className="fade-up">
