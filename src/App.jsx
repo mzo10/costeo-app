@@ -1597,6 +1597,7 @@ function VentasTab({ data, setData, costoProducto, comisionPct }) {
   const [colProducto, setColProducto] = useState('');
   const [colCantidad, setColCantidad] = useState('');
   const [colFecha, setColFecha] = useState('');
+  const [colPrecio, setColPrecio] = useState('');
   const [fechaFija, setFechaFija] = useState(todayStr());
   const [importPlataformaId, setImportPlataformaId] = useState(data.plataformas[0]?.id || '');
   const [manualMatch, setManualMatch] = useState({});
@@ -1618,6 +1619,7 @@ function VentasTab({ data, setData, costoProducto, comisionPct }) {
       setColProducto(guess(['producto', 'concepto', 'item', 'articulo']));
       setColCantidad(guess(['cantidad', 'items', 'unidades']));
       setColFecha(guess(['fecha', 'date']));
+      setColPrecio(guess(['precio', 'monto', 'total']));
     };
     reader.readAsText(file, 'utf-8');
   };
@@ -1628,12 +1630,13 @@ function VentasTab({ data, setData, costoProducto, comisionPct }) {
         const cantidad = num(r[colCantidad]);
         const fecha = colFecha ? normalizeDate(r[colFecha], fechaFija) : fechaFija;
         const producto = manualMatch[i] ? data.productos.find((p) => p.id === manualMatch[i]) : matchProducto(nombre);
-        return { nombre, cantidad, fecha, producto };
+        const precioOverride = colPrecio && r[colPrecio] !== undefined && r[colPrecio] !== '' ? num(r[colPrecio]) : null;
+        return { nombre, cantidad, fecha, producto, precioOverride };
       })
     : [];
   const matchedCount = previewRows.filter((r) => r.producto && r.cantidad > 0).length;
 
-  const closeImport = () => { setShowImport(false); setImportRows(null); setImportHeaders([]); setColProducto(''); setColCantidad(''); setColFecha(''); setManualMatch({}); };
+  const closeImport = () => { setShowImport(false); setImportRows(null); setImportHeaders([]); setColProducto(''); setColCantidad(''); setColFecha(''); setColPrecio(''); setManualMatch({}); };
 
   const confirmImport = () => {
     const validas = previewRows.filter((r) => r.producto && r.cantidad > 0);
@@ -1642,7 +1645,8 @@ function VentasTab({ data, setData, costoProducto, comisionPct }) {
       let insumos = d.insumos;
       const nuevas = validas.map((r) => {
         insumos = descontarStockPorVenta(insumos, r.producto, r.cantidad);
-        return { id: crypto.randomUUID(), productoId: r.producto.id, plataformaId: importPlataformaId, cantidad: r.cantidad, precioUnit: num(r.producto.precioVenta), fecha: r.fecha };
+        const precioUnit = r.precioOverride !== null ? r.precioOverride / r.cantidad : num(r.producto.precioVenta);
+        return { id: crypto.randomUUID(), productoId: r.producto.id, plataformaId: importPlataformaId, cantidad: r.cantidad, precioUnit, fecha: r.fecha };
       });
       return { ...d, ventas: [...nuevas, ...d.ventas], insumos };
     });
@@ -1752,6 +1756,12 @@ function VentasTab({ data, setData, costoProducto, comisionPct }) {
                   </select>
                 </Field>
                 {!colFecha && <Field label="Fecha para todo el archivo"><input style={inputStyle} type="date" value={fechaFija} onChange={(e) => setFechaFija(e.target.value)} /></Field>}
+                <Field label="Columna con el monto total (opcional)">
+                  <select style={inputStyle} value={colPrecio} onChange={(e) => setColPrecio(e.target.value)}>
+                    <option value="">Usar el precio del producto</option>
+                    {importHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
+                  </select>
+                </Field>
                 <Field label="Plataforma para estas ventas">
                   <select style={inputStyle} value={importPlataformaId} onChange={(e) => setImportPlataformaId(e.target.value)}>
                     {data.plataformas.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
