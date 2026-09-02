@@ -123,6 +123,14 @@ function descontarStockPorVenta(insumos, producto, cantidad) {
     return { ...ins, stockActual: Math.max(0, num(ins.stockActual || ins.cantidadCompra) - num(item.cantidad) * cantidad) };
   });
 }
+/** Inversa de descontarStockPorVenta — le devuelve el stock a los insumos. Se usa al borrar una venta o al reemplazarla por una versión más nueva del mismo día. */
+function reponerStockPorVenta(insumos, producto, cantidad) {
+  return insumos.map((ins) => {
+    const item = producto.items.find((it) => it.insumoId === ins.id);
+    if (!item) return ins;
+    return { ...ins, stockActual: num(ins.stockActual || ins.cantidadCompra) + num(item.cantidad) * cantidad };
+  });
+}
 function normalizeDate(s, fallback) {
   const str = (s || '').toString().trim();
   if (!str) return fallback;
@@ -1619,6 +1627,7 @@ function VentasTab({ data, setData, costoProducto, comisionPct }) {
   const [fechaFija, setFechaFija] = useState(todayStr());
   const [manualMatch, setManualMatch] = useState({});
   const [importDone, setImportDone] = useState(0);
+  const [reemplazadas, setReemplazadas] = useState(0);
 
   const activePlat = data.plataformas.find((p) => p.id === activeId) || data.plataformas[0];
 
@@ -1674,18 +1683,31 @@ function VentasTab({ data, setData, costoProducto, comisionPct }) {
   const confirmImport = () => {
     const validas = previewRows.filter((r) => r.producto && r.cantidad > 0);
     if (validas.length === 0) return;
+    const fechasNuevas = new Set(validas.map((r) => r.fecha));
     setData((d) => {
       let insumos = d.insumos;
+      let reemplazadas = 0;
+      const ventasRestantes = [];
+      d.ventas.forEach((v) => {
+        if (v.plataformaId === activeId && fechasNuevas.has(v.fecha)) {
+          const producto = d.productos.find((p) => p.id === v.productoId);
+          if (producto) insumos = reponerStockPorVenta(insumos, producto, v.cantidad);
+          reemplazadas++;
+        } else {
+          ventasRestantes.push(v);
+        }
+      });
       const nuevas = validas.map((r) => {
         insumos = descontarStockPorVenta(insumos, r.producto, r.cantidad);
         const precioUnit = r.precioOverride !== null ? r.precioOverride / r.cantidad : num(r.producto.precioVenta);
         return { id: crypto.randomUUID(), productoId: r.producto.id, plataformaId: activeId, cantidad: r.cantidad, precioUnit, fecha: r.fecha };
       });
-      return { ...d, ventas: [...nuevas, ...d.ventas], insumos };
+      setReemplazadas(reemplazadas);
+      return { ...d, ventas: [...nuevas, ...ventasRestantes], insumos };
     });
     setImportDone(validas.length);
     closeModo();
-    setTimeout(() => setImportDone(0), 4000);
+    setTimeout(() => setImportDone(0), 5000);
   };
 
   const startNewPlat = () => setPlatDraft(emptyPlataforma());
@@ -1715,13 +1737,7 @@ function VentasTab({ data, setData, costoProducto, comisionPct }) {
     setData((d) => ({
       ...d,
       ventas: d.ventas.filter((x) => x.id !== v.id),
-      insumos: producto
-        ? d.insumos.map((ins) => {
-            const item = producto.items.find((it) => it.insumoId === ins.id);
-            if (!item) return ins;
-            return { ...ins, stockActual: num(ins.stockActual || ins.cantidadCompra) + num(item.cantidad) * v.cantidad };
-          })
-        : d.insumos,
+      insumos: producto ? reponerStockPorVenta(d.insumos, producto, v.cantidad) : d.insumos,
     }));
   };
 
@@ -1810,7 +1826,7 @@ function VentasTab({ data, setData, costoProducto, comisionPct }) {
 
           {importDone > 0 && (
             <div style={{ ...cardStyle, background: COLORS.greenDim, borderColor: '#86EFAC', display: 'flex', alignItems: 'center', gap: 8, color: COLORS.greenDark, fontWeight: 600, fontSize: 13 }}>
-              <CheckCircle2 size={16} /> Se importaron {importDone} ventas de {activePlat.nombre} correctamente.
+              <CheckCircle2 size={16} /> Se importaron {importDone} ventas de {activePlat.nombre}{reemplazadas > 0 && <> — {reemplazadas} de esos días ya tenían datos y se reemplazaron con los de este reporte</>}.
             </div>
           )}
 
@@ -1834,7 +1850,7 @@ function VentasTab({ data, setData, costoProducto, comisionPct }) {
               {!importRows ? (
                 <>
                   <div style={{ fontSize: 12, color: COLORS.ink3, marginBottom: 12 }}>
-                    Subí el reporte de ventas de <strong>{activePlat.nombre}</strong>. Vamos a cruzar los nombres de producto con tus recetas.
+                    Subí el reporte de ventas de <strong>{activePlat.nombre}</strong>. Vamos a cruzar los nombres de producto con tus recetas. Si el archivo trae días que ya tenías cargados para esta plataforma, se reemplazan por lo que diga este reporte — no se duplican.
                   </div>
                   <label style={{ ...btnGhostSmall, display: 'inline-flex', cursor: 'pointer' }}>
                     <UploadCloud size={13} /> Elegir archivo CSV
