@@ -1603,7 +1603,21 @@ function VentasTab({ data, setData, costoProducto, comisionPct }) {
   const [manualMatch, setManualMatch] = useState({});
   const [importDone, setImportDone] = useState(0);
 
-  const matchProducto = (nombre) => data.productos.find((p) => normalizeName(p.nombre) === normalizeName(nombre)) || null;
+  const matchProducto = (nombre) => {
+    const n = normalizeName(nombre);
+    const exacto = data.productos.find((p) => normalizeName(p.nombre) === n);
+    if (exacto) return exacto;
+    const rawWords = n.split(/\s+/).filter((w) => w.length > 2);
+    let best = null, bestScore = 0;
+    data.productos.forEach((p) => {
+      const words = normalizeName(p.nombre).split(/\s+/).filter((w) => w.length > 2);
+      if (words.length === 0) return;
+      const overlap = words.filter((w) => rawWords.includes(w)).length;
+      const score = overlap / words.length;
+      if (score > bestScore) { bestScore = score; best = p; }
+    });
+    return bestScore >= 0.5 ? best : null;
+  };
 
   const onFileSelected = (e) => {
     const file = e.target.files[0];
@@ -1624,10 +1638,10 @@ function VentasTab({ data, setData, costoProducto, comisionPct }) {
     reader.readAsText(file, 'utf-8');
   };
 
-  const previewRows = importRows && colProducto && colCantidad
+  const previewRows = importRows && colProducto
     ? importRows.map((r, i) => {
         const nombre = r[colProducto] || '';
-        const cantidad = num(r[colCantidad]);
+        const cantidad = colCantidad ? num(r[colCantidad]) : 1;
         const fecha = colFecha ? normalizeDate(r[colFecha], fechaFija) : fechaFija;
         const producto = manualMatch[i] ? data.productos.find((p) => p.id === manualMatch[i]) : matchProducto(nombre);
         const precioOverride = colPrecio && r[colPrecio] !== undefined && r[colPrecio] !== '' ? num(r[colPrecio]) : null;
@@ -1743,9 +1757,9 @@ function VentasTab({ data, setData, costoProducto, comisionPct }) {
                     {importHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
                   </select>
                 </Field>
-                <Field label="Columna con la cantidad">
+                <Field label="Columna con la cantidad (opcional)">
                   <select style={inputStyle} value={colCantidad} onChange={(e) => setColCantidad(e.target.value)}>
-                    <option value="">Elegir columna...</option>
+                    <option value="">Cada fila es 1 unidad</option>
                     {importHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
                   </select>
                 </Field>
@@ -1769,7 +1783,7 @@ function VentasTab({ data, setData, costoProducto, comisionPct }) {
                 </Field>
               </div>
 
-              {colProducto && colCantidad && (
+              {colProducto && (
                 <div style={{ marginTop: 16 }}>
                   <div style={{ fontSize: 12, color: COLORS.ink3, marginBottom: 8 }}>
                     Vista previa — {previewRows.length} filas, <strong style={{ color: COLORS.greenDark }}>{matchedCount} con receta encontrada</strong>{previewRows.length - matchedCount > 0 && <> · {previewRows.length - matchedCount} sin coincidencia, elegí el producto manualmente abajo</>}.
@@ -1779,7 +1793,10 @@ function VentasTab({ data, setData, costoProducto, comisionPct }) {
                       key={i}
                       title={r.nombre || '(sin nombre)'}
                       meta={r.fecha}
-                      stats={[{ label: 'cantidad', value: r.cantidad || '—' }]}
+                      stats={[
+                        { label: 'cantidad', value: r.cantidad || '—' },
+                        ...(colPrecio ? [{ label: 'monto', value: r.precioOverride !== null ? money(r.precioOverride) : '— (usa precio del producto)' }] : []),
+                      ]}
                       actions={
                         r.producto ? (
                           <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: COLORS.greenDark, fontSize: 11.5, fontWeight: 600 }}><CheckCircle2 size={13} /> {r.producto.nombre}</span>
