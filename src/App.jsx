@@ -748,6 +748,7 @@ function VenderTab({ data, setData }) {
   const [cliente, setCliente] = useState({ nombre: '', identificacion: '', email: '', telefono: '' });
   const [ventaHecha, setVentaHecha] = useState(0);
   const [cartExpanded, setCartExpanded] = useState(false);
+  const [cobrando, setCobrando] = useState(false);
 
   if (data.productos.length === 0) {
     return (
@@ -767,7 +768,6 @@ function VenderTab({ data, setData }) {
 
   const addToCart = (id) => setCart((c) => ({ ...c, [id]: (c[id] || 0) + 1 }));
   const removeFromCart = (id) => setCart((c) => { const n = { ...c }; if (n[id] > 1) n[id] -= 1; else delete n[id]; return n; });
-  const clearItem = (id) => setCart((c) => { const n = { ...c }; delete n[id]; return n; });
 
   const cartItems = Object.entries(cart).map(([id, cantidad]) => ({ producto: data.productos.find((p) => p.id === id), cantidad })).filter((it) => it.producto);
   const total = cartItems.reduce((s, it) => s + num(it.producto.precioVenta) * it.cantidad, 0);
@@ -783,8 +783,11 @@ function VenderTab({ data, setData }) {
     if (consumo > 0 && consumo > stock) faltantes.push(ins.nombre);
   });
 
+  const vaciarCarrito = () => { setCart({}); setMetodoPago(''); setCartExpanded(false); };
+
   const cobrar = () => {
-    if (cartItems.length === 0 || !metodoPago) return;
+    if (cartItems.length === 0 || !metodoPago || cobrando) return;
+    setCobrando(true);
     const plataformaDirecta = data.plataformas.find((p) => normalizeName(p.nombre).includes('directa')) || data.plataformas[0];
     const fecha = todayStr();
     setData((d) => {
@@ -806,17 +809,20 @@ function VenderTab({ data, setData }) {
       }
       return { ...d, ventas: [...nuevasVentas, ...d.ventas], insumos, facturasPendientes };
     });
-    setCart({}); setMetodoPago(''); setNecesitaFactura(false); setCliente({ nombre: '', identificacion: '', email: '', telefono: '' }); setCartExpanded(false);
-    setVentaHecha(total); setTimeout(() => setVentaHecha(0), 3500);
+    setTimeout(() => {
+      setCart({}); setMetodoPago(''); setNecesitaFactura(false); setCliente({ nombre: '', identificacion: '', email: '', telefono: '' }); setCartExpanded(false);
+      setCobrando(false);
+      setVentaHecha(total); setTimeout(() => setVentaHecha(0), 3500);
+    }, 380);
   };
 
   const marcarResuelta = (id) => setData((d) => ({ ...d, facturasPendientes: d.facturasPendientes.map((f) => (f.id === id ? { ...f, resuelta: true } : f)) }));
   const pendientes = (data.facturasPendientes || []).filter((f) => !f.resuelta);
 
   const metodos = [
-    { key: 'efectivo', label: 'Efectivo', color: COLORS.blue },
+    { key: 'efectivo', label: 'Efectivo', color: '#2563EB' },
     { key: 'tarjeta', label: 'Tarjeta', color: '#7C3AED' },
-    { key: 'sinpe', label: 'SINPE', color: COLORS.greenDark },
+    { key: 'sinpe', label: 'SINPE', color: '#16A34A' },
   ];
 
   return (
@@ -824,17 +830,17 @@ function VenderTab({ data, setData }) {
       <SectionHead title="Vender" desc="Tocá los productos para armar el pedido y cobrá." />
 
       {ventaHecha > 0 && (
-        <div style={{ ...cardStyle, background: COLORS.greenDim, borderColor: '#86EFAC', display: 'flex', alignItems: 'center', gap: 10 }} className="fade-up">
-          <div style={{ width: 24, height: 24, borderRadius: '50%', background: COLORS.green, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <Check size={14} color={COLORS.navy} strokeWidth={3} />
+        <div style={{ ...cardStyle, background: '#F0FDF4', borderColor: '#BBF7D0', display: 'flex', alignItems: 'center', gap: 10 }} className="fade-up">
+          <div style={{ width: 24, height: 24, borderRadius: '50%', background: '#4ADE80', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Check size={13} color="#fff" strokeWidth={3} />
           </div>
-          <div style={{ fontWeight: 700, fontSize: 13.5, color: COLORS.greenDark }}>Venta cobrada por {money(ventaHecha)}.</div>
+          <div style={{ fontWeight: 700, fontSize: 13, color: '#15803D' }}>Venta cobrada por {money(ventaHecha)} y sumada al día.</div>
         </div>
       )}
       {faltantes.length > 0 && cartItems.length > 0 && (
         <div style={{ ...cardStyle, background: '#FFFBEB', borderColor: '#FDE68A', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-          <TriangleAlert size={15} color={COLORS.amber} style={{ flexShrink: 0, marginTop: 1 }} />
-          <div style={{ fontSize: 12.5, fontWeight: 600, color: COLORS.amber }}>No te alcanza el stock de: {faltantes.join(', ')} — igual podés cobrar, pero el stock va a quedar en 0 en vez de negativo.</div>
+          <TriangleAlert size={15} color="#B45309" style={{ flexShrink: 0, marginTop: 1 }} />
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#B45309' }}>No te alcanza el stock de: {faltantes.join(', ')} — igual podés cobrar, pero el stock va a quedar en 0 en vez de negativo.</div>
         </div>
       )}
 
@@ -860,17 +866,17 @@ function VenderTab({ data, setData }) {
               return (
                 <button key={p.id} onClick={() => addToCart(p.id)} style={{
                   position: 'relative', textAlign: 'left', background: COLORS.surface,
-                  border: enCarrito ? `2px solid ${COLORS.blue}` : `1px solid ${COLORS.border}`,
-                  borderRadius: 16, padding: enCarrito ? 13 : 14, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 6,
+                  border: enCarrito ? `2px solid #2563EB` : `1px solid ${COLORS.border}`,
+                  borderRadius: 18, padding: '18px 14px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 6,
                   transition: 'border-color .15s',
                 }}>
                   {enCarrito && (
-                    <span style={{ position: 'absolute', top: -9, right: -9, minWidth: 24, height: 24, borderRadius: 99, background: COLORS.blue, color: '#fff', fontSize: 12, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px' }}>
+                    <span style={{ position: 'absolute', top: -8, right: -8, minWidth: 24, height: 24, borderRadius: 99, background: '#2563EB', color: '#fff', fontSize: 12, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px' }}>
                       {enCarrito}
                     </span>
                   )}
-                  <div style={{ fontWeight: 700, fontSize: 13.5, lineHeight: 1.3, color: COLORS.ink }}>{p.nombre}</div>
-                  <div style={{ fontFamily: FONT_MONO, fontSize: 14.5, fontWeight: 800, color: COLORS.greenDark }}>{money(p.precioVenta)}</div>
+                  <div style={{ fontWeight: 700, fontSize: 14, lineHeight: 1.3, color: '#0F172A' }}>{p.nombre}</div>
+                  <div style={{ fontFamily: FONT_MONO, fontSize: 16, fontWeight: 900, color: '#16A34A' }}>{money(p.precioVenta)}</div>
                 </button>
               );
             })}
@@ -900,15 +906,15 @@ function VenderTab({ data, setData }) {
             ) : (
               <div style={{ maxHeight: 220, overflowY: 'auto' }}>
                 {cartItems.map((it) => (
-                  <div key={it.producto.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${COLORS.border}`, gap: 6 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 600, flex: 1, minWidth: 0 }}>{it.producto.nombre}</div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <IconBtn icon={Minus} onClick={() => removeFromCart(it.producto.id)} title="Quitar uno" />
-                      <span style={{ fontFamily: FONT_MONO, fontSize: 12.5, minWidth: 14, textAlign: 'center' }}>{it.cantidad}</span>
-                      <IconBtn icon={Plus} onClick={() => addToCart(it.producto.id)} title="Agregar uno" />
-                      <span style={{ fontFamily: FONT_MONO, fontSize: 12.5, minWidth: 62, textAlign: 'right' }}>{money(num(it.producto.precioVenta) * it.cantidad)}</span>
-                      <IconBtn icon={X} onClick={() => clearItem(it.producto.id)} tone="red" title="Quitar del ticket" />
+                  <div key={it.producto.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: `1px solid ${COLORS.border}` }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#0F172A' }}>{it.producto.nombre}</div>
+                      <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 1 }}>{it.cantidad} × {money(it.producto.precioVenta)}</div>
                     </div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: '#0F172A', fontFamily: FONT_MONO }}>{money(num(it.producto.precioVenta) * it.cantidad)}</div>
+                    <button onClick={() => removeFromCart(it.producto.id)} title="Quitar uno" style={{ width: 26, height: 26, borderRadius: 8, background: '#FEF2F2', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+                      <Minus size={12} color="#EF4444" strokeWidth={2.2} />
+                    </button>
                   </div>
                 ))}
               </div>
@@ -919,10 +925,10 @@ function VenderTab({ data, setData }) {
                 <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
                   {metodos.map((m) => (
                     <button key={m.key} onClick={() => setMetodoPago(m.key)} style={{
-                      flex: 1, height: 42, borderRadius: 10, cursor: 'pointer', fontSize: 12.5, fontWeight: 700,
-                      background: metodoPago === m.key ? m.color : COLORS.surface,
-                      color: metodoPago === m.key ? '#fff' : COLORS.ink3,
-                      border: metodoPago === m.key ? 'none' : `1.5px solid ${COLORS.border}`,
+                      flex: 1, height: 46, borderRadius: 13, cursor: 'pointer', fontSize: 13, fontWeight: 700,
+                      background: metodoPago === m.key ? m.color : '#fff',
+                      color: metodoPago === m.key ? '#fff' : '#64748B',
+                      border: metodoPago === m.key ? 'none' : '1.5px solid #E2E8F0',
                     }}>{m.label}</button>
                   ))}
                 </div>
@@ -942,9 +948,24 @@ function VenderTab({ data, setData }) {
                   )}
                 </div>
 
-                <button style={{ ...btnPrimary, width: '100%', justifyContent: 'center', marginTop: 14, fontSize: 14, padding: '13px 15px', opacity: metodoPago ? 1 : 0.5 }} onClick={cobrar} disabled={!metodoPago}>
-                  <Check size={16} /> {metodoPago ? `Cobrar ${money(total)}` : 'Elegí un método de pago'}
-                </button>
+                <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+                  <button onClick={vaciarCarrito} style={{ height: 50, padding: '0 18px', background: '#fff', border: '1px solid #E2E8F0', borderRadius: 14, fontSize: 13, fontWeight: 600, color: '#94A3B8', cursor: 'pointer', flexShrink: 0 }}>
+                    Vaciar
+                  </button>
+                  <button
+                    onClick={cobrar}
+                    disabled={cobrando || !metodoPago}
+                    style={{
+                      flex: 1, height: 50, borderRadius: 14, fontSize: 15, fontWeight: 800, border: 'none',
+                      cursor: cobrando || !metodoPago ? 'default' : 'pointer',
+                      background: cobrando || !metodoPago ? '#E2E8F0' : 'linear-gradient(135deg,#1338BE,#2563EB)',
+                      color: cobrando || !metodoPago ? '#94A3B8' : '#fff',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}
+                  >
+                    {cobrando ? <Loader2 size={20} className="spin" /> : (metodoPago ? `Cobrar ${money(total)}` : 'Elegí un método de pago')}
+                  </button>
+                </div>
               </>
             )}
           </div>
