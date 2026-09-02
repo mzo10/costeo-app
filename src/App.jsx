@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Pencil, X, Check, Package, ChefHat, TriangleAlert, ChevronRight, ChevronUp, ShoppingCart, LineChart, PackagePlus, Settings2, LogOut, Store, ArrowRight, Copy, KeyRound, ArrowLeft, UploadCloud, CheckCircle2, FileText, Sparkles, Loader2, AlertCircle, Receipt, Minus, Search, Mail, Activity } from 'lucide-react';
+import { Plus, Trash2, Pencil, X, Check, Package, ChefHat, TriangleAlert, ChevronRight, ChevronUp, ChevronLeft, ShoppingCart, LineChart, PackagePlus, Settings2, LogOut, Store, ArrowRight, Copy, KeyRound, ArrowLeft, UploadCloud, CheckCircle2, FileText, Sparkles, Loader2, AlertCircle, Receipt, Minus, Search, Mail, Activity } from 'lucide-react';
 import Papa from 'papaparse';
 import { supabase } from './supabaseClient';
 
@@ -1612,6 +1612,54 @@ function ReceiptSummary({ costo, precio, margen, items, insumos, costoPorUnidad,
 }
 
 /* ---------- Ventas tab ---------- */
+/**
+ * Selector de día tipo calendario semanal — mismo patrón que "Registrar
+ * venta o gasto" en sinpe-check. Muestra una semana (L a D), con flechas
+ * para moverse de semana; tocar un día lo selecciona.
+ */
+function DayPicker({ value, onChange }) {
+  const [weekStart, setWeekStart] = useState(() => {
+    const d = new Date(value + 'T00:00:00');
+    const dow = (d.getDay() + 6) % 7; // lunes = 0
+    d.setDate(d.getDate() - dow);
+    return d;
+  });
+  const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(weekStart); d.setDate(d.getDate() + i); return d; });
+  const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const today = todayStr();
+  const dow = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+  const mesLabel = days[6].toLocaleDateString('es-CR', { month: 'short' }).replace('.', '');
+  const moverSemana = (delta) => { const d = new Date(weekStart); d.setDate(d.getDate() + delta * 7); setWeekStart(d); };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <button onClick={() => moverSemana(-1)} style={{ ...IconBtnStyleNeutral }}><ChevronLeft size={15} /></button>
+        <div style={{ fontSize: 12.5, fontWeight: 700, color: COLORS.ink2 }}>{days[0].getDate()} — {days[6].getDate()} de {mesLabel}</div>
+        <button onClick={() => moverSemana(1)} style={{ ...IconBtnStyleNeutral }}><ChevronRight size={15} /></button>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
+        {days.map((d, i) => {
+          const iso = fmt(d);
+          const isSel = iso === value;
+          const isToday = iso === today;
+          return (
+            <button key={i} onClick={() => onChange(iso)} style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '7px 0 8px', borderRadius: 10,
+              border: 'none', cursor: 'pointer', background: isSel ? COLORS.navy : 'transparent',
+            }}>
+              <span style={{ fontSize: 9.5, fontWeight: 700, color: isSel ? 'rgba(255,255,255,0.6)' : COLORS.ink4 }}>{dow[i]}</span>
+              <span style={{ fontSize: 13.5, fontWeight: 700, color: isSel ? '#fff' : COLORS.ink }}>{d.getDate()}</span>
+              {isToday && <span style={{ width: 4, height: 4, borderRadius: '50%', background: isSel ? '#fff' : COLORS.blue }} />}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+const IconBtnStyleNeutral = { width: 28, height: 28, borderRadius: 8, border: `1px solid ${COLORS.border}`, background: COLORS.surface, color: COLORS.ink3, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' };
+
 function VentasTab({ data, setData, costoProducto, comisionPct }) {
   const [activeId, setActiveId] = useState(data.plataformas[0]?.id || '');
   const [platDraft, setPlatDraft] = useState(null);
@@ -1798,30 +1846,31 @@ function VentasTab({ data, setData, costoProducto, comisionPct }) {
         <EmptyState text="Creá tu primera plataforma para empezar (Uber Eats, Pedidos Ya, tu punto físico, la que sea)." />
       ) : (
         <>
-          <div style={{ ...cardStyle, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, borderLeft: `4px solid ${platformAccentColor(activePlat.nombre)}` }}>
-            <div>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16 }}>{activePlat.nombre}</div>
-              <div style={{ fontSize: 12, color: COLORS.ink3, marginTop: 3, fontFamily: FONT_MONO }}>
-                servicio {num(activePlat.comisionServicio)}% · publicidad {num(activePlat.comisionPublicidad)}%
+          <div style={{ background: GRADIENT, borderRadius: 16, padding: 20, marginBottom: 16, color: '#fff' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'rgba(255,255,255,0.55)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: platformAccentColor(activePlat.nombre) }} />
+                  {activePlat.nombre} — ingreso neto total
+                </div>
+                <div style={{ fontFamily: FONT_MONO, fontWeight: 800, fontSize: 32, marginTop: 4, letterSpacing: '-0.5px' }}>{money(resumen.neto)}</div>
+                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', marginTop: 2 }}>{resumen.ventas} unidades vendidas · {money(resumen.bruto)} bruto</div>
+              </div>
+              <div style={{ display: 'flex', gap: 4 }}>
+                <button onClick={() => setPlatDraft({ ...activePlat })} title="Editar comisiones" style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.18)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><Pencil size={13} /></button>
+                <button onClick={() => removePlat(activePlat.id)} title="Eliminar plataforma" style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.18)', color: '#fca5a5', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><Trash2 size={13} /></button>
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 4 }}>
-              <IconBtn icon={Pencil} onClick={() => setPlatDraft({ ...activePlat })} title="Editar comisiones" />
-              <IconBtn icon={Trash2} onClick={() => removePlat(activePlat.id)} tone="red" title="Eliminar plataforma" />
+            <div style={{ display: 'flex', gap: 10, marginTop: 16, flexWrap: 'wrap' }}>
+              <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 10, padding: '9px 14px', flex: '1 1 130px' }}>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', fontWeight: 700, textTransform: 'uppercase' }}>Comisión servicio</div>
+                <div style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 15, marginTop: 2 }}>{num(activePlat.comisionServicio)}%</div>
+              </div>
+              <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 10, padding: '9px 14px', flex: '1 1 130px' }}>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', fontWeight: 700, textTransform: 'uppercase' }}>Comisión publicidad</div>
+                <div style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 15, marginTop: 2 }}>{num(activePlat.comisionPublicidad)}%</div>
+              </div>
             </div>
-          </div>
-
-          {resumen.ventas > 0 && (
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
-              <Kpi label="Unidades vendidas" value={resumen.ventas} />
-              <Kpi label="Ingreso bruto" value={money(resumen.bruto)} />
-              <Kpi label="Ingreso neto" value={money(resumen.neto)} tone="greenDark" />
-            </div>
-          )}
-
-          <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-            <button style={modo === 'manual' ? btnPrimary : btnGhost} onClick={() => setModo(modo === 'manual' ? null : 'manual')}><Plus size={14} /> Registrar venta manual</button>
-            <button style={modo === 'csv' ? btnPrimary : btnGhost} onClick={() => setModo(modo === 'csv' ? null : 'csv')}><UploadCloud size={14} /> Importar reporte (CSV)</button>
           </div>
 
           {importDone > 0 && (
@@ -1830,20 +1879,25 @@ function VentasTab({ data, setData, costoProducto, comisionPct }) {
             </div>
           )}
 
-          {modo === 'manual' && (
-            <div style={cardStyle} className="fade-up">
-              <div className="form-row" style={{ alignItems: 'end' }}>
+          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 16, alignItems: 'flex-start' }}>
+            <div style={{ ...cardStyle, flex: '1 1 320px', marginBottom: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15 }}>Registrar venta</div>
+                <button style={btnGhostSmall} onClick={() => setModo(modo === 'csv' ? null : 'csv')}><UploadCloud size={13} /> Importar reporte</button>
+              </div>
+              <div style={{ fontSize: 11, color: COLORS.ink3, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>Día</div>
+              <DayPicker value={venta.fecha} onChange={(fecha) => setVenta({ ...venta, fecha })} />
+              <div className="form-row" style={{ marginTop: 16 }}>
                 <Field label="Producto">
                   <select style={inputStyle} value={venta.productoId} onChange={(e) => setVenta({ ...venta, productoId: e.target.value })}>
                     {data.productos.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
                   </select>
                 </Field>
                 <Field label="Cantidad"><input style={inputStyle} type="number" placeholder="1" value={venta.cantidad} onChange={(e) => setVenta({ ...venta, cantidad: e.target.value })} /></Field>
-                <Field label="Fecha"><input style={inputStyle} type="date" value={venta.fecha} onChange={(e) => setVenta({ ...venta, fecha: e.target.value })} /></Field>
-                <button style={{ ...btnPrimary, justifyContent: 'center' }} onClick={registrarVenta}><Plus size={14} /> Registrar</button>
               </div>
+              <button style={{ ...btnPrimary, width: '100%', justifyContent: 'center', marginTop: 12 }} onClick={registrarVenta}><Plus size={14} /> Registrar venta</button>
             </div>
-          )}
+          </div>
 
           {modo === 'csv' && (
             <div style={cardStyle} className="fade-up">
