@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Pencil, X, Check, Package, ChefHat, TriangleAlert, ChevronRight, ChevronUp, ShoppingCart, LineChart, PackagePlus, Settings2, LogOut, Store, ArrowRight, Copy, KeyRound, ArrowLeft, UploadCloud, CheckCircle2, FileText, Sparkles, Loader2, AlertCircle, Receipt, Minus, Search, Mail } from 'lucide-react';
+import { Plus, Trash2, Pencil, X, Check, Package, ChefHat, TriangleAlert, ChevronRight, ChevronUp, ShoppingCart, LineChart, PackagePlus, Settings2, LogOut, Store, ArrowRight, Copy, KeyRound, ArrowLeft, UploadCloud, CheckCircle2, FileText, Sparkles, Loader2, AlertCircle, Receipt, Minus, Search, Mail, Activity } from 'lucide-react';
 import Papa from 'papaparse';
 import { supabase } from './supabaseClient';
 
@@ -18,6 +18,7 @@ function defaultData(businessName) {
     ventas: [], target: 30, umbralStock: 5, costosFijos: '',
     comisionPlataformaEstimada: 30, aumentoPrecioPlataforma: 10,
     facturasProcesadas: [], gastosOperativos: [], aliasInsumos: {}, facturasPendientes: [],
+    costosFijosDetalle: [], diasOperacionSemana: 6, metaUtilidadMensual: '',
   };
 }
 /**
@@ -93,6 +94,20 @@ function money(n) {
 }
 function num(v) { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
 function normalizeName(s) { return (s || '').toString().trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
+
+/**
+ * Descuenta del stock de cada insumo lo que consume `producto` al vender
+ * `cantidad` unidades de él, sin bajar de cero. Usada por toda venta,
+ * sin importar de dónde venga (POS, registro manual, importación CSV),
+ * para que la regla de consumo viva en un solo lugar.
+ */
+function descontarStockPorVenta(insumos, producto, cantidad) {
+  return insumos.map((ins) => {
+    const item = producto.items.find((it) => it.insumoId === ins.id);
+    if (!item) return ins;
+    return { ...ins, stockActual: Math.max(0, num(ins.stockActual || ins.cantidadCompra) - num(item.cantidad) * cantidad) };
+  });
+}
 function normalizeDate(s, fallback) {
   const str = (s || '').toString().trim();
   if (!str) return fallback;
@@ -640,6 +655,7 @@ function Dashboard({ data, setData, email, onLogout, saveData }) {
             <TabButton icon={ChefHat} label="Productos" active={tab === 'productos'} onClick={() => setTab('productos')} />
             <TabButton icon={ShoppingCart} label="Ventas" active={tab === 'ventas'} onClick={() => setTab('ventas')} />
             <TabButton icon={LineChart} label="Finanzas" active={tab === 'finanzas'} onClick={() => setTab('finanzas')} />
+            <TabButton icon={Activity} label="Salud" active={tab === 'salud'} onClick={() => setTab('salud')} />
           </div>
         </div>
       </header>
@@ -652,6 +668,7 @@ function Dashboard({ data, setData, email, onLogout, saveData }) {
         {tab === 'productos' && <ProductosTab data={data} setData={setData} costoPorUnidad={costoPorUnidad} costoProducto={costoProducto} />}
         {tab === 'ventas' && <VentasTab data={data} setData={setData} costoProducto={costoProducto} comisionPct={comisionPct} />}
         {tab === 'finanzas' && <FinanzasTab data={data} setData={setData} costoProducto={costoProducto} comisionPct={comisionPct} />}
+        {tab === 'salud' && <SaludTab data={data} setData={setData} costoProducto={costoProducto} comisionPct={comisionPct} />}
       </main>
     </div>
   );
@@ -793,11 +810,7 @@ function VenderTab({ data, setData }) {
     setData((d) => {
       let insumos = d.insumos;
       const nuevasVentas = cartItems.map((it) => {
-        insumos = insumos.map((ins) => {
-          const item = it.producto.items.find((x) => x.insumoId === ins.id);
-          if (!item) return ins;
-          return { ...ins, stockActual: Math.max(0, num(ins.stockActual || ins.cantidadCompra) - num(item.cantidad) * it.cantidad) };
-        });
+        insumos = descontarStockPorVenta(insumos, it.producto, it.cantidad);
         return { id: crypto.randomUUID(), productoId: it.producto.id, plataformaId: plataformaDirecta?.id, cantidad: it.cantidad, precioUnit: num(it.producto.precioVenta), fecha, metodoPago };
       });
       let facturasPendientes = d.facturasPendientes || [];
@@ -1172,6 +1185,11 @@ function InsumosTab({ data, setData, costoPorUnidad, costoProducto, onSeedMenu }
             <Field label="Precio pagado (₡)"><input style={inputStyle} type="number" placeholder="8000" value={draft.precioCompra} onChange={(e) => setDraft({ ...draft, precioCompra: e.target.value })} /></Field>
             <Field label={`Stock actual (${UNIT_LABEL[draft.unidadBase]}, opcional)`}><input style={inputStyle} type="number" placeholder="= cantidad comprada" value={draft.stockActual} onChange={(e) => setDraft({ ...draft, stockActual: e.target.value })} /></Field>
           </div>
+          {num(draft.cantidadCompra) > 0 && num(draft.precioCompra) > 0 && (
+            <div style={{ marginTop: 10, fontFamily: FONT_MONO, fontSize: 13, fontWeight: 700, color: COLORS.greenDark, background: COLORS.greenDim, borderRadius: 8, padding: '8px 12px', display: 'inline-block' }}>
+              = {money(num(draft.precioCompra) / num(draft.cantidadCompra))} por {UNIT_LABEL[draft.unidadBase]}
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
             <button style={btnPrimary} onClick={save}><Check size={14} /> Guardar</button>
             <button style={btnGhost} onClick={cancel}><X size={14} /> Cancelar</button>
@@ -1191,10 +1209,19 @@ function InsumosTab({ data, setData, costoPorUnidad, costoProducto, onSeedMenu }
 
       {data.insumos.length > 0 && (
         <div style={{ marginTop: draft ? 16 : 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, fontSize: 12, color: COLORS.ink3 }}>
+            Avisar cuando el stock alcance para
+            <input style={{ ...inputStyle, width: 60, textAlign: 'center' }} type="number" value={data.umbralStock} onChange={(e) => setData({ ...data, umbralStock: e.target.value })} />
+            platos o menos de cualquier receta.
+          </div>
           {data.insumos.map((ins) => {
             const stock = num(ins.stockActual || ins.cantidadCompra);
             const costoU = costoPorUnidad(ins);
-            const low = stock <= num(data.umbralStock) * 3 && stock > 0;
+            const alcanzaPorProducto = data.productos
+              .map((p) => { const it = p.items.find((x) => x.insumoId === ins.id); return it && num(it.cantidad) ? Math.floor(stock / num(it.cantidad)) : null; })
+              .filter((n) => n !== null);
+            const alcanzaMin = alcanzaPorProducto.length ? Math.min(...alcanzaPorProducto) : null;
+            const low = alcanzaMin !== null && alcanzaMin <= num(data.umbralStock);
             return (
               <Row
                 key={ins.id}
@@ -1554,11 +1581,7 @@ function VentasTab({ data, setData, costoProducto, comisionPct }) {
     setData((d) => {
       let insumos = d.insumos;
       const nuevas = validas.map((r) => {
-        insumos = insumos.map((ins) => {
-          const item = r.producto.items.find((it) => it.insumoId === ins.id);
-          if (!item) return ins;
-          return { ...ins, stockActual: Math.max(0, num(ins.stockActual || ins.cantidadCompra) - num(item.cantidad) * r.cantidad) };
-        });
+        insumos = descontarStockPorVenta(insumos, r.producto, r.cantidad);
         return { id: crypto.randomUUID(), productoId: r.producto.id, plataformaId: importPlataformaId, cantidad: r.cantidad, precioUnit: num(r.producto.precioVenta), fecha: r.fecha };
       });
       return { ...d, ventas: [...nuevas, ...d.ventas], insumos };
@@ -1587,11 +1610,7 @@ function VentasTab({ data, setData, costoProducto, comisionPct }) {
     setData((d) => ({
       ...d,
       ventas: [nueva, ...d.ventas],
-      insumos: d.insumos.map((ins) => {
-        const item = producto.items.find((it) => it.insumoId === ins.id);
-        if (!item) return ins;
-        return { ...ins, stockActual: Math.max(0, num(ins.stockActual || ins.cantidadCompra) - num(item.cantidad) * cantidad) };
-      }),
+      insumos: descontarStockPorVenta(d.insumos, producto, cantidad),
     }));
     setVenta({ ...venta, cantidad: '' });
   };
@@ -1855,8 +1874,10 @@ function FinanzasTab({ data, setData, costoProducto, comisionPct }) {
   const ingresoNeto = ingresoBruto - comisionesTotal;
   const utilidadBruta = ingresoNeto - cogs;
   const margenGlobal = ingresoNeto ? (utilidadBruta / ingresoNeto) * 100 : null;
-  const costosFijos = num(data.costosFijos);
-  const utilidadNeta = utilidadBruta - costosFijos - gastosOperativosTotal;
+  const costosFijos = (data.costosFijosDetalle || []).reduce((s, c) => s + num(c.monto), 0) || num(data.costosFijos);
+  const diasPeriodo = periodo === 'hoy' ? 1 : periodo === '7' ? 7 : periodo === '30' ? 30 : null;
+  const costosFijosPeriodo = diasPeriodo !== null ? (costosFijos / 30) * diasPeriodo : costosFijos;
+  const utilidadNeta = utilidadBruta - costosFijosPeriodo - gastosOperativosTotal;
   const rankingProductos = Object.values(porProducto).sort((a, b) => b.utilidad - a.utilidad);
   const tablaPlataformas = Object.values(porPlataforma).sort((a, b) => b.neto - a.neto);
 
@@ -1915,20 +1936,17 @@ function FinanzasTab({ data, setData, costoProducto, comisionPct }) {
             <Kpi label="Margen sobre ingreso neto" value={margenGlobal === null ? '—' : `${margenGlobal.toFixed(1)}%`} tone={margenGlobal >= 0 ? 'greenDark' : 'redDark'} />
           </div>
 
-          <div style={cardStyle}>
-            <div style={{ fontSize: 12, color: COLORS.ink3, marginBottom: 8 }}>
-              Costos fijos del período que estás viendo (renta, planilla, servicios) — opcional, para saber la utilidad neta real.
-              {gastosOperativosTotal > 0 && <> Además, ya tenés <strong>{money(gastosOperativosTotal)}</strong> en gastos operativos cargados desde facturas en este período (limpieza, insumos administrativos, etc.) — se suman solos.</>}
+          {costosFijos > 0 && (
+            <div style={cardStyle}>
+              <div style={{ fontSize: 12, color: COLORS.ink3, marginBottom: 8 }}>
+                Tus costos fijos mensuales (₡{money(costosFijos)}) se prorratean según el período elegido{diasPeriodo === null ? ' — para "Todo" se muestra el mes completo como referencia' : ` (≈${money(costosFijosPeriodo)} en este período)`}. Para editarlos, andá a la pestaña <strong>Salud</strong>.
+                {gastosOperativosTotal > 0 && <> Además, ya tenés <strong>{money(gastosOperativosTotal)}</strong> en gastos operativos cargados desde facturas en este período — se suman solos.</>}
+              </div>
+              <div style={{ fontFamily: FONT_MONO, fontSize: 13, fontWeight: 700, color: utilidadNeta >= 0 ? COLORS.greenDark : COLORS.redDark }}>
+                Utilidad neta: {money(utilidadNeta)} — {utilidadNeta >= 0 ? 'el negocio es rentable en este período' : 'el negocio está perdiendo en este período'}
+              </div>
             </div>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-              <input style={{ ...inputStyle, maxWidth: 200 }} type="number" placeholder="0" value={data.costosFijos} onChange={(e) => setData({ ...data, costosFijos: e.target.value })} />
-              {(costosFijos > 0 || gastosOperativosTotal > 0) && (
-                <div style={{ fontFamily: FONT_MONO, fontSize: 13, fontWeight: 700, color: utilidadNeta >= 0 ? COLORS.greenDark : COLORS.redDark }}>
-                  Utilidad neta: {money(utilidadNeta)} — {utilidadNeta >= 0 ? 'el negocio es rentable en este período' : 'el negocio está perdiendo en este período'}
-                </div>
-              )}
-            </div>
-          </div>
+          )}
 
           <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, margin: '22px 0 10px' }}>Por plataforma</div>
           {tablaPlataformas.map((p, i) => (
@@ -1955,6 +1973,147 @@ function FinanzasTab({ data, setData, costoProducto, comisionPct }) {
               ]}
             />
           ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Salud del negocio ---------- */
+function SaludTab({ data, setData, costoProducto, comisionPct }) {
+  const [nuevoCosto, setNuevoCosto] = useState({ nombre: '', monto: '' });
+
+  const costosFijosDetalle = data.costosFijosDetalle || [];
+  const costosFijosTotal = costosFijosDetalle.reduce((s, c) => s + num(c.monto), 0);
+
+  const addCosto = () => {
+    if (!nuevoCosto.nombre.trim() || !num(nuevoCosto.monto)) return;
+    setData((d) => ({ ...d, costosFijosDetalle: [...(d.costosFijosDetalle || []), { id: crypto.randomUUID(), nombre: nuevoCosto.nombre.trim(), monto: num(nuevoCosto.monto) }] }));
+    setNuevoCosto({ nombre: '', monto: '' });
+  };
+  const removeCosto = (id) => setData((d) => ({ ...d, costosFijosDetalle: d.costosFijosDetalle.filter((c) => c.id !== id) }));
+
+  // Margen de contribución: ponderado por ventas reales de los últimos 30 días
+  // si hay suficientes; si no, promedio simple de márgenes de productos; si
+  // tampoco hay productos con precio, se asume el food-cost objetivo (target).
+  const hace30 = (() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); })();
+  const ventasRecientes = data.ventas.filter((v) => v.fecha >= hace30);
+  let margenContribucionPct;
+  if (ventasRecientes.length > 0) {
+    let netoTotal = 0, utilidadTotal = 0;
+    ventasRecientes.forEach((v) => {
+      const producto = data.productos.find((p) => p.id === v.productoId);
+      const plat = data.plataformas.find((p) => p.id === v.plataformaId);
+      if (!producto || !plat) return;
+      const bruto = v.precioUnit * v.cantidad;
+      const neto = bruto - bruto * (comisionPct(plat) / 100);
+      const costo = costoProducto(producto) * v.cantidad;
+      netoTotal += neto; utilidadTotal += neto - costo;
+    });
+    margenContribucionPct = netoTotal ? (utilidadTotal / netoTotal) * 100 : null;
+  }
+  if (!margenContribucionPct) {
+    const conPrecio = data.productos.filter((p) => num(p.precioVenta) > 0);
+    if (conPrecio.length > 0) {
+      const promedios = conPrecio.map((p) => { const c = costoProducto(p); const pr = num(p.precioVenta); return ((pr - c) / pr) * 100; });
+      margenContribucionPct = promedios.reduce((s, m) => s + m, 0) / promedios.length;
+    } else {
+      margenContribucionPct = 100 - num(data.target || 30);
+    }
+  }
+
+  const diasOperacionSemana = num(data.diasOperacionSemana) || 6;
+  const diasOperacionMes = diasOperacionSemana * 4.345;
+  const puntoEquilibrioMensual = margenContribucionPct > 0 ? costosFijosTotal / (margenContribucionPct / 100) : null;
+  const sugerenciaUtilidad = Math.round((costosFijosTotal * 0.2) / 1000) * 1000;
+  const metaUtilidad = num(data.metaUtilidadMensual);
+  const metaVentasMensual = margenContribucionPct > 0 && metaUtilidad > 0 ? (costosFijosTotal + metaUtilidad) / (margenContribucionPct / 100) : puntoEquilibrioMensual;
+  const metaDiaria = metaVentasMensual ? metaVentasMensual / diasOperacionMes : null;
+  const metaSemanal = metaDiaria ? metaDiaria * diasOperacionSemana : null;
+
+  // Progreso del mes calendario actual
+  const hoy = new Date();
+  const inicioMes = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-01`;
+  const diasEnMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0).getDate();
+  const diaDeHoy = hoy.getDate();
+  const ventasMes = data.ventas.filter((v) => v.fecha >= inicioMes);
+  const ingresoNetoMes = ventasMes.reduce((sum, v) => {
+    const plat = data.plataformas.find((p) => p.id === v.plataformaId);
+    if (!plat) return sum;
+    const bruto = v.precioUnit * v.cantidad;
+    return sum + (bruto - bruto * (comisionPct(plat) / 100));
+  }, 0);
+  const ritmoEsperado = metaVentasMensual ? (metaVentasMensual * diaDeHoy) / diasEnMes : null;
+  const proyeccionFinMes = diaDeHoy > 0 ? (ingresoNetoMes / diaDeHoy) * diasEnMes : 0;
+  const diferencia = ritmoEsperado !== null ? ingresoNetoMes - ritmoEsperado : null;
+
+  let estado = null;
+  if (metaVentasMensual) {
+    const ratio = proyeccionFinMes / metaVentasMensual;
+    estado = ratio >= 1 ? { emoji: '🟢', texto: 'Vas bien — a este ritmo cumplís la meta del mes', tone: 'greenDark' }
+      : ratio >= 0.9 ? { emoji: '🟡', texto: 'Vas justo — necesitás repuntar un poco para llegar', tone: 'amber' }
+      : { emoji: '🔴', texto: 'Vas atrasado respecto a la meta del mes', tone: 'redDark' };
+  }
+
+  return (
+    <div>
+      <SectionHead title="Salud del negocio" desc="Costos fijos, cuánto necesitás vender, y qué tan bien vas cumpliéndolo." />
+
+      <div style={cardStyle}>
+        <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, marginBottom: 4 }}>Costos fijos mensuales</div>
+        <div style={{ fontSize: 12, color: COLORS.ink3, marginBottom: 12 }}>Renta, planilla, servicios, internet — todo lo que pagás sí o sí, vendas o no vendas.</div>
+        {costosFijosDetalle.map((c) => (
+          <Row key={c.id} title={c.nombre} stats={[{ label: 'monto mensual', value: money(c.monto) }]} actions={<IconBtn icon={Trash2} onClick={() => removeCosto(c.id)} tone="red" title="Eliminar" />} />
+        ))}
+        <div className="form-row" style={{ marginTop: costosFijosDetalle.length ? 10 : 0 }}>
+          <Field label="Concepto"><input style={inputStyle} placeholder="Ej: Alquiler del local" value={nuevoCosto.nombre} onChange={(e) => setNuevoCosto({ ...nuevoCosto, nombre: e.target.value })} /></Field>
+          <Field label="Monto mensual (₡)"><input style={inputStyle} type="number" placeholder="350000" value={nuevoCosto.monto} onChange={(e) => setNuevoCosto({ ...nuevoCosto, monto: e.target.value })} /></Field>
+          <div style={{ display: 'flex', alignItems: 'flex-end' }}><button style={btnGhostSmall} onClick={addCosto}><Plus size={13} /> Agregar</button></div>
+        </div>
+        {costosFijosTotal > 0 && (
+          <div style={{ marginTop: 12, fontFamily: FONT_MONO, fontSize: 14, fontWeight: 700 }}>Total: {money(costosFijosTotal)} / mes</div>
+        )}
+      </div>
+
+      {costosFijosTotal === 0 ? (
+        <EmptyState text="Agregá al menos un costo fijo arriba para ver tu punto de equilibrio y tu meta de ventas." />
+      ) : (
+        <>
+          <div style={cardStyle}>
+            <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, marginBottom: 10 }}>Configuración</div>
+            <div className="form-row">
+              <Field label="Días que opera por semana"><input style={inputStyle} type="number" value={data.diasOperacionSemana} onChange={(e) => setData({ ...data, diasOperacionSemana: e.target.value })} /></Field>
+              <Field label="Food cost objetivo (%)"><input style={inputStyle} type="number" value={data.target} onChange={(e) => setData({ ...data, target: e.target.value })} /></Field>
+              <Field label="Meta de utilidad mensual (₡, opcional)"><input style={inputStyle} type="number" placeholder={`sugerido: ${sugerenciaUtilidad}`} value={data.metaUtilidadMensual} onChange={(e) => setData({ ...data, metaUtilidadMensual: e.target.value })} /></Field>
+            </div>
+            <div style={{ fontSize: 11.5, color: COLORS.ink4, marginTop: 8, lineHeight: 1.5 }}>
+              En comida rápida, un food cost saludable suele estar entre 28% y 35% (o sea, margen bruto de 65% a 72%). Si no sabés qué meta de utilidad poner, una referencia común para empezar es ganar al menos un 20% de tus costos fijos —{' '}
+              {metaUtilidad === 0 && <button onClick={() => setData({ ...data, metaUtilidadMensual: sugerenciaUtilidad })} style={{ background: 'none', border: 'none', color: COLORS.blue, textDecoration: 'underline', cursor: 'pointer', padding: 0, fontSize: 11.5 }}>usar {money(sugerenciaUtilidad)} como meta</button>}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+            <Kpi label="Margen de contribución" value={`${margenContribucionPct.toFixed(0)}%`} />
+            <Kpi label="Punto de equilibrio (mes)" value={money(puntoEquilibrioMensual)} />
+            <Kpi label="Meta de ventas (mes)" value={money(metaVentasMensual)} tone="blue" />
+            <Kpi label="Meta diaria" value={money(metaDiaria)} />
+            <Kpi label="Meta semanal" value={money(metaSemanal)} />
+          </div>
+
+          <div style={cardStyle}>
+            <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, marginBottom: 10 }}>Este mes ({hoy.toLocaleDateString('es-CR', { month: 'long', year: 'numeric' })})</div>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <Kpi label="Ingreso neto hasta hoy" value={money(ingresoNetoMes)} />
+              <Kpi label="Debería llevar (ritmo)" value={money(ritmoEsperado)} />
+              <Kpi label="Proyección a fin de mes" value={money(proyeccionFinMes)} tone={proyeccionFinMes >= metaVentasMensual ? 'greenDark' : 'redDark'} />
+              <Kpi label="Diferencia vs. ritmo" value={diferencia === null ? '—' : `${diferencia >= 0 ? '+' : ''}${money(diferencia)}`} tone={diferencia >= 0 ? 'greenDark' : 'redDark'} />
+            </div>
+            {estado && (
+              <div style={{ marginTop: 14, padding: '10px 14px', borderRadius: 10, background: COLORS.surfaceDim, fontSize: 13, fontWeight: 700, color: COLORS[estado.tone] || COLORS.ink2 }}>
+                {estado.emoji} {estado.texto}
+              </div>
+            )}
+          </div>
         </>
       )}
     </div>
