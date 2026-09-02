@@ -18,7 +18,7 @@ function defaultData(businessName) {
     ventas: [], target: 30, umbralStock: 5, costosFijos: '',
     comisionPlataformaEstimada: 30, aumentoPrecioPlataforma: 10,
     facturasProcesadas: [], gastosOperativos: [], aliasInsumos: {}, facturasPendientes: [],
-    costosFijosDetalle: [], diasOperacionSemana: 6, metaUtilidadMensual: '',
+    costosFijosDetalle: [], diasOperacionSemana: 6, metaMargenNetoPct: 8,
   };
 }
 /**
@@ -305,6 +305,38 @@ function GlobalCss() {
         .pos-cart { position: sticky; top: 20px; }
         .pos-cart-handle { display: none !important; }
         .pos-cart-body { padding: 0; }
+      }
+
+      /* --- App shell: sidebar (desktop) vs. bottom nav (mobile) --- */
+      .app-shell { display: flex; }
+      .app-sidebar {
+        width: 232px; flex-shrink: 0; background: ${GRADIENT}; min-height: 100vh;
+        position: sticky; top: 0; align-self: flex-start;
+        display: flex; flex-direction: column; gap: 8px; padding: 22px 10px 16px;
+      }
+      .app-sidebar-nav { display: flex; flex-direction: column; gap: 3px; margin: 10px 0 auto; }
+      .mobile-topbar { display: none; }
+      .app-content { flex: 1; min-width: 0; }
+      .app-bottom-nav { display: none; }
+
+      @media (max-width: 879px) {
+        .app-shell { flex-direction: column; }
+        .app-sidebar { display: none; }
+        .mobile-topbar {
+          display: flex; align-items: center; justify-content: space-between; gap: 10px;
+          background: ${GRADIENT}; padding: 14px 16px; position: sticky; top: 0; z-index: 40;
+        }
+        .app-content { padding-bottom: 74px; }
+        .app-bottom-nav {
+          display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 70;
+          background: ${COLORS.surface}; border-top: 1px solid ${COLORS.border};
+          padding: 7px 2px calc(env(safe-area-inset-bottom, 0px) + 6px);
+          justify-content: space-around; box-shadow: 0 -4px 16px rgba(6,13,58,0.06);
+        }
+        .app-bottom-nav-item {
+          display: flex; flex-direction: column; align-items: center; gap: 3px;
+          padding: 4px 2px; border: none; background: none; cursor: pointer; flex: 1;
+        }
       }
       @keyframes radarspin { to { transform: rotate(360deg); } }
       @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
@@ -606,6 +638,15 @@ const btnGhostLight = { display: 'flex', alignItems: 'center', gap: 6, backgroun
 /* =========================================================
    DASHBOARD
    ========================================================= */
+const NAV_ITEMS = [
+  { key: 'vender', icon: Receipt, label: 'Vender' },
+  { key: 'insumos', icon: Package, label: 'Insumos' },
+  { key: 'productos', icon: ChefHat, label: 'Productos' },
+  { key: 'ventas', icon: ShoppingCart, label: 'Ventas' },
+  { key: 'finanzas', icon: LineChart, label: 'Finanzas' },
+  { key: 'salud', icon: Activity, label: 'Salud' },
+];
+
 function Dashboard({ data, setData, email, onLogout, saveData }) {
   const [tab, setTab] = useState('vender');
   const [err, setErr] = useState('');
@@ -631,61 +672,80 @@ function Dashboard({ data, setData, email, onLogout, saveData }) {
   };
 
   return (
-    <div style={{ minHeight: '100%', background: COLORS.bg, color: COLORS.ink, fontFamily: FONT_BODY, display: 'flex', flexDirection: 'column' }}>
+    <div className="app-shell" style={{ minHeight: '100vh', background: COLORS.bg, color: COLORS.ink, fontFamily: FONT_BODY }}>
       <GlobalCss />
-      <header style={{ background: GRADIENT, position: 'sticky', top: 0, zIndex: 10 }}>
-        <div style={{ maxWidth: 1080, margin: '0 auto', padding: '18px 20px 0' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <BrandMark />
-              <div>
-                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: '#fff', maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{data.businessName || 'COSTEO'}</div>
-                <div style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.5)', marginTop: 2 }} className="header-subtitle">{email}</div>
-              </div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <button onClick={onLogout} title="Cerrar sesión" style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.18)', color: '#fca5a5', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
-                <LogOut size={14} />
-              </button>
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 4, marginTop: 16, flexWrap: 'wrap' }}>
-            <TabButton icon={Receipt} label="Vender" active={tab === 'vender'} onClick={() => setTab('vender')} />
-            <TabButton icon={Package} label="Insumos" active={tab === 'insumos'} onClick={() => setTab('insumos')} />
-            <TabButton icon={ChefHat} label="Productos" active={tab === 'productos'} onClick={() => setTab('productos')} />
-            <TabButton icon={ShoppingCart} label="Ventas" active={tab === 'ventas'} onClick={() => setTab('ventas')} />
-            <TabButton icon={LineChart} label="Finanzas" active={tab === 'finanzas'} onClick={() => setTab('finanzas')} />
-            <TabButton icon={Activity} label="Salud" active={tab === 'salud'} onClick={() => setTab('salud')} />
-          </div>
+
+      {/* Sidebar — desktop only (ver CSS) */}
+      <aside className="app-sidebar">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 10px 0' }}>
+          <BrandMark />
+          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{data.businessName || 'COSTEO'}</div>
         </div>
-      </header>
+        <nav className="app-sidebar-nav">
+          {NAV_ITEMS.map((n) => <SidebarNavItem key={n.key} {...n} active={tab === n.key} onClick={() => setTab(n.key)} />)}
+        </nav>
+        <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 12, margin: '0 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.6)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email}</div>
+          </div>
+          <button onClick={onLogout} title="Cerrar sesión" style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.18)', color: '#fca5a5', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+            <LogOut size={13} />
+          </button>
+        </div>
+      </aside>
 
-      {err && <div style={{ background: COLORS.redDim, color: COLORS.redDark, fontSize: 13, padding: '8px 20px', display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}><TriangleAlert size={14} /> {err}</div>}
+      {/* Topbar — mobile only (ver CSS) */}
+      <div className="mobile-topbar">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+          <BrandMark />
+          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{data.businessName || 'COSTEO'}</div>
+        </div>
+        <button onClick={onLogout} title="Cerrar sesión" style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.18)', color: '#fca5a5', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+          <LogOut size={13} />
+        </button>
+      </div>
 
-      <main style={{ maxWidth: 1080, margin: '0 auto', width: '100%', padding: '28px 20px 60px', flex: 1 }} className="fade-up" key={tab}>
-        {tab === 'vender' && <VenderTab data={data} setData={setData} />}
-        {tab === 'insumos' && <InsumosTab data={data} setData={setData} costoPorUnidad={costoPorUnidad} costoProducto={costoProducto} onSeedMenu={seedMenu} />}
-        {tab === 'productos' && <ProductosTab data={data} setData={setData} costoPorUnidad={costoPorUnidad} costoProducto={costoProducto} />}
-        {tab === 'ventas' && <VentasTab data={data} setData={setData} costoProducto={costoProducto} comisionPct={comisionPct} />}
-        {tab === 'finanzas' && <FinanzasTab data={data} setData={setData} costoProducto={costoProducto} comisionPct={comisionPct} />}
-        {tab === 'salud' && <SaludTab data={data} setData={setData} costoProducto={costoProducto} comisionPct={comisionPct} />}
-      </main>
+      <div className="app-content">
+        {err && <div style={{ background: COLORS.redDim, color: COLORS.redDark, fontSize: 13, padding: '8px 20px', display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}><TriangleAlert size={14} /> {err}</div>}
+
+        <main style={{ maxWidth: 1080, margin: '0 auto', width: '100%', padding: '28px 20px 40px' }} className="fade-up" key={tab}>
+          {tab === 'vender' && <VenderTab data={data} setData={setData} />}
+          {tab === 'insumos' && <InsumosTab data={data} setData={setData} costoPorUnidad={costoPorUnidad} costoProducto={costoProducto} onSeedMenu={seedMenu} />}
+          {tab === 'productos' && <ProductosTab data={data} setData={setData} costoPorUnidad={costoPorUnidad} costoProducto={costoProducto} />}
+          {tab === 'ventas' && <VentasTab data={data} setData={setData} costoProducto={costoProducto} comisionPct={comisionPct} />}
+          {tab === 'finanzas' && <FinanzasTab data={data} setData={setData} costoProducto={costoProducto} comisionPct={comisionPct} />}
+          {tab === 'salud' && <SaludTab data={data} setData={setData} costoProducto={costoProducto} comisionPct={comisionPct} />}
+        </main>
+      </div>
+
+      {/* Barra inferior — mobile only (ver CSS) */}
+      <nav className="app-bottom-nav">
+        {NAV_ITEMS.map((n) => <BottomNavItem key={n.key} {...n} active={tab === n.key} onClick={() => setTab(n.key)} />)}
+      </nav>
     </div>
   );
 }
 
-function TabButton({ icon: Icon, label, active, onClick }) {
+function SidebarNavItem({ icon: Icon, label, active, onClick }) {
   return (
-    <button className="tab-btn" onClick={onClick} style={{
-      display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px 12px', border: 'none',
-      borderBottom: active ? `2px solid ${COLORS.green}` : '2px solid transparent', marginBottom: -1,
-      background: 'transparent', color: active ? '#fff' : 'rgba(255,255,255,0.5)',
-      fontFamily: FONT_BODY, fontWeight: active ? 600 : 500, fontSize: 13.5, cursor: 'pointer',
+    <button onClick={onClick} style={{
+      display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 10, border: 'none', cursor: 'pointer',
+      width: '100%', textAlign: 'left', background: active ? 'rgba(255,255,255,0.12)' : 'transparent',
+      color: active ? '#fff' : 'rgba(255,255,255,0.55)', fontWeight: active ? 700 : 500, fontSize: 13.5, fontFamily: FONT_BODY,
     }}>
-      <Icon size={15} />{label}
+      <Icon size={17} />{label}
     </button>
   );
 }
+function BottomNavItem({ icon: Icon, label, active, onClick }) {
+  return (
+    <button className="app-bottom-nav-item" onClick={onClick} style={{ color: active ? COLORS.blue : COLORS.ink4 }}>
+      <Icon size={20} strokeWidth={active ? 2.4 : 2} />
+      <span style={{ fontSize: 10, fontWeight: active ? 700 : 600 }}>{label}</span>
+    </button>
+  );
+}
+
 
 /* ---------- shared bits ---------- */
 function Field({ label, children }) {
@@ -2025,11 +2085,13 @@ function SaludTab({ data, setData, costoProducto, comisionPct }) {
   const diasOperacionSemana = num(data.diasOperacionSemana) || 6;
   const diasOperacionMes = diasOperacionSemana * 4.345;
   const puntoEquilibrioMensual = margenContribucionPct > 0 ? costosFijosTotal / (margenContribucionPct / 100) : null;
-  const sugerenciaUtilidad = Math.round((costosFijosTotal * 0.2) / 1000) * 1000;
-  const metaUtilidad = num(data.metaUtilidadMensual);
-  const metaVentasMensual = margenContribucionPct > 0 && metaUtilidad > 0 ? (costosFijosTotal + metaUtilidad) / (margenContribucionPct / 100) : puntoEquilibrioMensual;
+  const metaMargenNetoPct = data.metaMargenNetoPct === '' || data.metaMargenNetoPct === undefined ? 8 : num(data.metaMargenNetoPct);
+  const brechaValida = margenContribucionPct - metaMargenNetoPct > 0;
+  const metaVentasMensual = brechaValida ? costosFijosTotal / ((margenContribucionPct - metaMargenNetoPct) / 100) : puntoEquilibrioMensual;
+  const metaUtilidadMensual = metaVentasMensual ? metaVentasMensual * (metaMargenNetoPct / 100) : null;
   const metaDiaria = metaVentasMensual ? metaVentasMensual / diasOperacionMes : null;
   const metaSemanal = metaDiaria ? metaDiaria * diasOperacionSemana : null;
+  const tienePlanilla = costosFijosDetalle.some((c) => normalizeName(c.nombre).includes('planilla') || normalizeName(c.nombre).includes('salario') || normalizeName(c.nombre).includes('sueldo') || normalizeName(c.nombre).includes('nomina'));
 
   // Progreso del mes calendario actual
   const hoy = new Date();
@@ -2084,21 +2146,32 @@ function SaludTab({ data, setData, costoProducto, comisionPct }) {
             <div className="form-row">
               <Field label="Días que opera por semana"><input style={inputStyle} type="number" value={data.diasOperacionSemana} onChange={(e) => setData({ ...data, diasOperacionSemana: e.target.value })} /></Field>
               <Field label="Food cost objetivo (%)"><input style={inputStyle} type="number" value={data.target} onChange={(e) => setData({ ...data, target: e.target.value })} /></Field>
-              <Field label="Meta de utilidad mensual (₡, opcional)"><input style={inputStyle} type="number" placeholder={`sugerido: ${sugerenciaUtilidad}`} value={data.metaUtilidadMensual} onChange={(e) => setData({ ...data, metaUtilidadMensual: e.target.value })} /></Field>
+              <Field label="Margen neto objetivo (%)"><input style={inputStyle} type="number" placeholder="8" value={data.metaMargenNetoPct} onChange={(e) => setData({ ...data, metaMargenNetoPct: e.target.value })} /></Field>
             </div>
             <div style={{ fontSize: 11.5, color: COLORS.ink4, marginTop: 8, lineHeight: 1.5 }}>
-              En comida rápida, un food cost saludable suele estar entre 28% y 35% (o sea, margen bruto de 65% a 72%). Si no sabés qué meta de utilidad poner, una referencia común para empezar es ganar al menos un 20% de tus costos fijos —{' '}
-              {metaUtilidad === 0 && <button onClick={() => setData({ ...data, metaUtilidadMensual: sugerenciaUtilidad })} style={{ background: 'none', border: 'none', color: COLORS.blue, textDecoration: 'underline', cursor: 'pointer', padding: 0, fontSize: 11.5 }}>usar {money(sugerenciaUtilidad)} como meta</button>}
+              En comida rápida, lo saludable es: food cost 20%–25% del precio, insumos + planilla juntos ("prime cost") por debajo de 60%, y margen neto final de 6%–10%. 8% es un objetivo sano para empezar — lo podés subir si tu negocio ya está bien afinado.
             </div>
+            {!tienePlanilla && costosFijosTotal > 0 && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginTop: 10, padding: '8px 10px', background: '#FFFBEB', borderRadius: 8 }}>
+                <TriangleAlert size={14} color="#B45309" style={{ flexShrink: 0, marginTop: 1 }} />
+                <div style={{ fontSize: 11.5, color: '#B45309' }}>No veo "planilla" ni "salarios" en tus costos fijos. Si tenés empleados (o te pagás un sueldo a vos mismo), agregalo arriba — sin eso, la meta de venta va a salir más baja de lo que en realidad necesitás.</div>
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
             <Kpi label="Margen de contribución" value={`${margenContribucionPct.toFixed(0)}%`} />
             <Kpi label="Punto de equilibrio (mes)" value={money(puntoEquilibrioMensual)} />
             <Kpi label="Meta de ventas (mes)" value={money(metaVentasMensual)} tone="blue" />
+            <Kpi label="Utilidad neta esperada" value={money(metaUtilidadMensual)} tone="greenDark" />
             <Kpi label="Meta diaria" value={money(metaDiaria)} />
             <Kpi label="Meta semanal" value={money(metaSemanal)} />
           </div>
+          {!brechaValida && (
+            <div style={{ ...cardStyle, background: COLORS.redDim, borderColor: '#FCA5A5', fontSize: 12.5, color: COLORS.redDark }}>
+              Tu margen de contribución ({margenContribucionPct.toFixed(0)}%) es menor que el margen neto que pusiste como meta ({metaMargenNetoPct}%) — matemáticamente no alcanza por más que vendas. Bajá la meta o subí precios/bajá costos de insumos primero.
+            </div>
+          )}
 
           <div style={cardStyle}>
             <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, marginBottom: 10 }}>Este mes ({hoy.toLocaleDateString('es-CR', { month: 'long', year: 'numeric' })})</div>
