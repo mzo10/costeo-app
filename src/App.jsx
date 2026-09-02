@@ -4,6 +4,21 @@ import Papa from 'papaparse';
 import { supabase } from './supabaseClient';
 
 const UNIT_LABEL = { g: 'g', ml: 'ml', unidad: 'u' };
+// Logo propio del negocio — este deploy es de un solo negocio (Papa Ra Papa),
+// así que va como constante. Si esto se vuelve multi-negocio de verdad, esto
+// pasa a ser un campo subido por cada negocio (data.logoUrl) en vez de fijo.
+const BUSINESS_LOGO_URL = '/papa-ra-papa-logo.png';
+
+// Colores de marca de plataformas conocidas — solo el color, nunca su logo
+// (son marcas registradas de terceros, no se reproducen sus ísotipos aquí).
+function platformAccentColor(nombre) {
+  const n = normalizeName(nombre);
+  if (n.includes('uber')) return '#06C167';
+  if (n.includes('pedidos') || n.includes('pedidosya')) return '#FF0050';
+  if (n.includes('rappi')) return '#FF441F';
+  if (n.includes('directa') || n.includes('mostrador') || n.includes('fisico') || n.includes('físico')) return COLORS.blue;
+  return COLORS.ink4;
+}
 
 const emptyInsumo = () => ({ id: crypto.randomUUID(), nombre: '', unidadBase: 'g', cantidadCompra: '', precioCompra: '', stockActual: '' });
 const emptyProducto = () => ({ id: crypto.randomUUID(), nombre: '', precioVenta: '', categoria: 'Platos', items: [] });
@@ -504,9 +519,12 @@ function Landing({ onSignup, onLogin }) {
     </div>
   );
 }
-function BrandMark() {
+function BrandMark({ logoUrl, size = 34 }) {
+  if (logoUrl) {
+    return <img src={logoUrl} alt="Logo" style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />;
+  }
   return (
-    <div style={{ width: 34, height: 34, borderRadius: 9, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT_MONO, fontWeight: 700, fontSize: 12, color: COLORS.green }}>
+    <div style={{ width: size, height: size, borderRadius: 9, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT_MONO, fontWeight: 700, fontSize: 12, color: COLORS.green, flexShrink: 0 }}>
       ₡/u
     </div>
   );
@@ -678,7 +696,7 @@ function Dashboard({ data, setData, email, onLogout, saveData }) {
       {/* Sidebar — desktop only (ver CSS) */}
       <aside className="app-sidebar">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 10px 0' }}>
-          <BrandMark />
+          <BrandMark logoUrl={BUSINESS_LOGO_URL} />
           <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{data.businessName || 'COSTEO'}</div>
         </div>
         <nav className="app-sidebar-nav">
@@ -697,7 +715,7 @@ function Dashboard({ data, setData, email, onLogout, saveData }) {
       {/* Topbar — mobile only (ver CSS) */}
       <div className="mobile-topbar">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-          <BrandMark />
+          <BrandMark logoUrl={BUSINESS_LOGO_URL} />
           <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{data.businessName || 'COSTEO'}</div>
         </div>
         <button onClick={onLogout} title="Cerrar sesión" style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.18)', color: '#fca5a5', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
@@ -1587,11 +1605,11 @@ function ReceiptSummary({ costo, precio, margen, items, insumos, costoPorUnidad,
 
 /* ---------- Ventas tab ---------- */
 function VentasTab({ data, setData, costoProducto, comisionPct }) {
-  const [showPlataformas, setShowPlataformas] = useState(false);
+  const [activeId, setActiveId] = useState(data.plataformas[0]?.id || '');
   const [platDraft, setPlatDraft] = useState(null);
-  const [venta, setVenta] = useState({ productoId: data.productos[0]?.id || '', plataformaId: data.plataformas[0]?.id || '', cantidad: '', fecha: todayStr() });
+  const [modo, setModo] = useState(null); // null | 'manual' | 'csv'
+  const [venta, setVenta] = useState({ productoId: data.productos[0]?.id || '', cantidad: '', fecha: todayStr() });
 
-  const [showImport, setShowImport] = useState(false);
   const [importRows, setImportRows] = useState(null);
   const [importHeaders, setImportHeaders] = useState([]);
   const [colProducto, setColProducto] = useState('');
@@ -1599,9 +1617,10 @@ function VentasTab({ data, setData, costoProducto, comisionPct }) {
   const [colFecha, setColFecha] = useState('');
   const [colPrecio, setColPrecio] = useState('');
   const [fechaFija, setFechaFija] = useState(todayStr());
-  const [importPlataformaId, setImportPlataformaId] = useState(data.plataformas[0]?.id || '');
   const [manualMatch, setManualMatch] = useState({});
   const [importDone, setImportDone] = useState(0);
+
+  const activePlat = data.plataformas.find((p) => p.id === activeId) || data.plataformas[0];
 
   const matchProducto = (nombre) => {
     const n = normalizeName(nombre);
@@ -1650,7 +1669,7 @@ function VentasTab({ data, setData, costoProducto, comisionPct }) {
     : [];
   const matchedCount = previewRows.filter((r) => r.producto && r.cantidad > 0).length;
 
-  const closeImport = () => { setShowImport(false); setImportRows(null); setImportHeaders([]); setColProducto(''); setColCantidad(''); setColFecha(''); setColPrecio(''); setManualMatch({}); };
+  const closeModo = () => { setModo(null); setImportRows(null); setImportHeaders([]); setColProducto(''); setColCantidad(''); setColFecha(''); setColPrecio(''); setManualMatch({}); };
 
   const confirmImport = () => {
     const validas = previewRows.filter((r) => r.producto && r.cantidad > 0);
@@ -1660,36 +1679,34 @@ function VentasTab({ data, setData, costoProducto, comisionPct }) {
       const nuevas = validas.map((r) => {
         insumos = descontarStockPorVenta(insumos, r.producto, r.cantidad);
         const precioUnit = r.precioOverride !== null ? r.precioOverride / r.cantidad : num(r.producto.precioVenta);
-        return { id: crypto.randomUUID(), productoId: r.producto.id, plataformaId: importPlataformaId, cantidad: r.cantidad, precioUnit, fecha: r.fecha };
+        return { id: crypto.randomUUID(), productoId: r.producto.id, plataformaId: activeId, cantidad: r.cantidad, precioUnit, fecha: r.fecha };
       });
       return { ...d, ventas: [...nuevas, ...d.ventas], insumos };
     });
     setImportDone(validas.length);
-    closeImport();
+    closeModo();
     setTimeout(() => setImportDone(0), 4000);
   };
 
   const startNewPlat = () => setPlatDraft(emptyPlataforma());
   const savePlat = () => {
     if (!platDraft.nombre.trim()) return;
-    setData((d) => {
-      const exists = d.plataformas.some((p) => p.id === platDraft.id);
-      return { ...d, plataformas: exists ? d.plataformas.map((p) => (p.id === platDraft.id ? platDraft : p)) : [...d.plataformas, platDraft] };
-    });
+    const esNueva = !data.plataformas.some((p) => p.id === platDraft.id);
+    setData((d) => ({ ...d, plataformas: esNueva ? [...d.plataformas, platDraft] : d.plataformas.map((p) => (p.id === platDraft.id ? platDraft : p)) }));
+    if (esNueva) setActiveId(platDraft.id);
     setPlatDraft(null);
   };
-  const removePlat = (id) => setData((d) => ({ ...d, plataformas: d.plataformas.filter((p) => p.id !== id), ventas: d.ventas.filter((v) => v.plataformaId !== id) }));
+  const removePlat = (id) => {
+    setData((d) => ({ ...d, plataformas: d.plataformas.filter((p) => p.id !== id), ventas: d.ventas.filter((v) => v.plataformaId !== id) }));
+    if (activeId === id) setActiveId(data.plataformas.find((p) => p.id !== id)?.id || '');
+  };
 
   const registrarVenta = () => {
     const producto = data.productos.find((p) => p.id === venta.productoId);
     const cantidad = num(venta.cantidad);
-    if (!producto || !cantidad || !venta.plataformaId) return;
-    const nueva = { id: crypto.randomUUID(), productoId: venta.productoId, plataformaId: venta.plataformaId, cantidad, precioUnit: num(producto.precioVenta), fecha: venta.fecha };
-    setData((d) => ({
-      ...d,
-      ventas: [nueva, ...d.ventas],
-      insumos: descontarStockPorVenta(d.insumos, producto, cantidad),
-    }));
+    if (!producto || !cantidad || !activeId) return;
+    const nueva = { id: crypto.randomUUID(), productoId: venta.productoId, plataformaId: activeId, cantidad, precioUnit: num(producto.precioVenta), fecha: venta.fecha };
+    setData((d) => ({ ...d, ventas: [nueva, ...d.ventas], insumos: descontarStockPorVenta(d.insumos, producto, cantidad) }));
     setVenta({ ...venta, cantidad: '' });
   };
 
@@ -1717,192 +1734,204 @@ function VentasTab({ data, setData, costoProducto, comisionPct }) {
     );
   }
 
+  const ventasPlataforma = data.ventas.filter((v) => v.plataformaId === activeId);
+  const resumen = ventasPlataforma.reduce((acc, v) => {
+    const bruto = v.precioUnit * v.cantidad;
+    const neto = bruto - bruto * (comisionPct(activePlat) / 100);
+    return { bruto: acc.bruto + bruto, neto: acc.neto + neto, ventas: acc.ventas + v.cantidad };
+  }, { bruto: 0, neto: 0, ventas: 0 });
+
   return (
     <div>
-      <SectionHead
-        title="Ventas"
-        desc="Registrá lo vendido en cada plataforma. El costo de insumos se descuenta solo del inventario."
-        action={
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button style={btnGhost} onClick={() => setShowImport(!showImport)}><UploadCloud size={14} /> Importar CSV</button>
-            <button style={btnGhost} onClick={() => setShowPlataformas(!showPlataformas)}><Settings2 size={14} /> Plataformas</button>
-          </div>
-        }
-      />
+      <SectionHead title="Ventas" desc="Elegí la plataforma y registrá lo vendido — subiendo su reporte o a mano." />
 
-      {importDone > 0 && (
-        <div style={{ ...cardStyle, background: COLORS.greenDim, borderColor: '#86EFAC', display: 'flex', alignItems: 'center', gap: 8, color: COLORS.greenDark, fontWeight: 600, fontSize: 13 }}>
-          <CheckCircle2 size={16} /> Se importaron {importDone} ventas correctamente.
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
+        {data.plataformas.map((p) => (
+          <button key={p.id} onClick={() => { setActiveId(p.id); closeModo(); }} style={{
+            display: 'flex', alignItems: 'center', gap: 7, padding: '8px 15px', borderRadius: 20, fontSize: 13, cursor: 'pointer', fontWeight: 600,
+            border: `1px solid ${activeId === p.id ? COLORS.navy : COLORS.border}`,
+            background: activeId === p.id ? COLORS.navy : COLORS.surface,
+            color: activeId === p.id ? '#fff' : COLORS.ink2,
+          }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: platformAccentColor(p.nombre), flexShrink: 0 }} />
+            {p.nombre}
+          </button>
+        ))}
+        <button onClick={startNewPlat} style={{ padding: '8px 15px', borderRadius: 20, fontSize: 13, cursor: 'pointer', fontWeight: 600, border: `1px dashed ${COLORS.blue}`, background: 'transparent', color: COLORS.blue, display: 'flex', alignItems: 'center', gap: 4 }}>
+          <Plus size={13} /> Plataforma
+        </button>
+      </div>
+
+      {platDraft && (
+        <div style={cardStyle} className="fade-up">
+          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, marginBottom: 10 }}>{data.plataformas.some((p) => p.id === platDraft.id) ? 'Editar plataforma' : 'Nueva plataforma'}</div>
+          <div className="form-row">
+            <Field label="Nombre"><input style={inputStyle} placeholder="Ej: Rappi" value={platDraft.nombre} onChange={(e) => setPlatDraft({ ...platDraft, nombre: e.target.value })} autoFocus /></Field>
+            <Field label="Comisión de servicio (%)"><input style={inputStyle} type="number" placeholder="25" value={platDraft.comisionServicio} onChange={(e) => setPlatDraft({ ...platDraft, comisionServicio: e.target.value })} /></Field>
+            <Field label="Comisión de publicidad (%)"><input style={inputStyle} type="number" placeholder="10" value={platDraft.comisionPublicidad} onChange={(e) => setPlatDraft({ ...platDraft, comisionPublicidad: e.target.value })} /></Field>
+          </div>
+          <div style={{ fontSize: 11.5, color: COLORS.ink4, marginTop: 8 }}>Para tu punto físico / mostrador, dejá las dos comisiones en 0.</div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            <button style={btnPrimary} onClick={savePlat}><Check size={14} /> Guardar</button>
+            <button style={btnGhost} onClick={() => setPlatDraft(null)}><X size={14} /> Cancelar</button>
+          </div>
         </div>
       )}
 
-      {showImport && (
-        <div style={cardStyle} className="fade-up">
-          {!importRows ? (
-            <>
-              <div style={{ fontSize: 12, color: COLORS.ink3, marginBottom: 12 }}>
-                Subí el CSV que exportás de Alegra. Vamos a cruzar los nombres de producto con tus recetas para registrar las ventas solas.
+      {!activePlat ? (
+        <EmptyState text="Creá tu primera plataforma para empezar (Uber Eats, Pedidos Ya, tu punto físico, la que sea)." />
+      ) : (
+        <>
+          <div style={{ ...cardStyle, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, borderLeft: `4px solid ${platformAccentColor(activePlat.nombre)}` }}>
+            <div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16 }}>{activePlat.nombre}</div>
+              <div style={{ fontSize: 12, color: COLORS.ink3, marginTop: 3, fontFamily: FONT_MONO }}>
+                servicio {num(activePlat.comisionServicio)}% · publicidad {num(activePlat.comisionPublicidad)}%
               </div>
-              <label style={{ ...btnGhostSmall, display: 'inline-flex', cursor: 'pointer' }}>
-                <UploadCloud size={13} /> Elegir archivo CSV
-                <input type="file" accept=".csv" onChange={onFileSelected} style={{ display: 'none' }} />
-              </label>
-            </>
-          ) : (
-            <>
-              <div className="form-row">
-                <Field label="Columna con el producto">
-                  <select style={inputStyle} value={colProducto} onChange={(e) => setColProducto(e.target.value)}>
-                    <option value="">Elegir columna...</option>
-                    {importHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
-                  </select>
-                </Field>
-                <Field label="Columna con la cantidad (opcional)">
-                  <select style={inputStyle} value={colCantidad} onChange={(e) => setColCantidad(e.target.value)}>
-                    <option value="">Cada fila es 1 unidad</option>
-                    {importHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
-                  </select>
-                </Field>
-                <Field label="Columna con la fecha (opcional)">
-                  <select style={inputStyle} value={colFecha} onChange={(e) => setColFecha(e.target.value)}>
-                    <option value="">Usar una fecha fija</option>
-                    {importHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
-                  </select>
-                </Field>
-                {!colFecha && <Field label="Fecha para todo el archivo"><input style={inputStyle} type="date" value={fechaFija} onChange={(e) => setFechaFija(e.target.value)} /></Field>}
-                <Field label="Columna con el monto total (opcional)">
-                  <select style={inputStyle} value={colPrecio} onChange={(e) => setColPrecio(e.target.value)}>
-                    <option value="">Usar el precio del producto</option>
-                    {importHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
-                  </select>
-                </Field>
-                <Field label="Plataforma para estas ventas">
-                  <select style={inputStyle} value={importPlataformaId} onChange={(e) => setImportPlataformaId(e.target.value)}>
-                    {data.plataformas.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-                  </select>
-                </Field>
-              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <IconBtn icon={Pencil} onClick={() => setPlatDraft({ ...activePlat })} title="Editar comisiones" />
+              <IconBtn icon={Trash2} onClick={() => removePlat(activePlat.id)} tone="red" title="Eliminar plataforma" />
+            </div>
+          </div>
 
-              {colProducto && (
-                <div style={{ marginTop: 16 }}>
-                  <div style={{ fontSize: 12, color: COLORS.ink3, marginBottom: 8 }}>
-                    Vista previa — {previewRows.length} filas, <strong style={{ color: COLORS.greenDark }}>{matchedCount} con receta encontrada</strong>{previewRows.length - matchedCount > 0 && <> · {previewRows.length - matchedCount} sin coincidencia, elegí el producto manualmente abajo</>}.
-                  </div>
-                  {previewRows.slice(0, 60).map((r, i) => (
-                    <Row
-                      key={i}
-                      title={r.nombre || '(sin nombre)'}
-                      meta={r.fecha}
-                      stats={[
-                        { label: 'cantidad', value: r.cantidad || '—' },
-                        ...(colPrecio ? [{ label: 'monto', value: r.precioOverride !== null ? money(r.precioOverride) : '— (usa precio del producto)' }] : []),
-                      ]}
-                      actions={
-                        r.producto ? (
-                          <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: COLORS.greenDark, fontSize: 11.5, fontWeight: 600 }}><CheckCircle2 size={13} /> {r.producto.nombre}</span>
-                        ) : (
-                          <select style={{ ...inputStyle, width: 170, fontSize: 12 }} value={manualMatch[i] || ''} onChange={(e) => setManualMatch({ ...manualMatch, [i]: e.target.value })}>
-                            <option value="">sin coincidencia</option>
-                            {data.productos.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-                          </select>
-                        )
-                      }
-                    />
-                  ))}
-                  {previewRows.length > 60 && <div style={{ fontSize: 11.5, color: COLORS.ink4, marginTop: 4 }}>...y {previewRows.length - 60} filas más (se importan todas, solo no se muestran todas aquí).</div>}
-                </div>
-              )}
-
-              <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-                <button style={btnPrimary} onClick={confirmImport} disabled={matchedCount === 0}><Check size={14} /> Importar {matchedCount || ''} ventas</button>
-                <button style={btnGhost} onClick={closeImport}><X size={14} /> Cancelar</button>
-              </div>
-            </>
+          {resumen.ventas > 0 && (
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+              <Kpi label="Unidades vendidas" value={resumen.ventas} />
+              <Kpi label="Ingreso bruto" value={money(resumen.bruto)} />
+              <Kpi label="Ingreso neto" value={money(resumen.neto)} tone="greenDark" />
+            </div>
           )}
-        </div>
-      )}
 
-      {showPlataformas && (
-        <div style={cardStyle} className="fade-up">
-          <div style={{ fontSize: 12, color: COLORS.ink3, marginBottom: 10 }}>
-            Configurá cada canal de venta con su comisión de servicio y de publicidad (%). Para venta directa, dejá ambas en 0.
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+            <button style={modo === 'manual' ? btnPrimary : btnGhost} onClick={() => setModo(modo === 'manual' ? null : 'manual')}><Plus size={14} /> Registrar venta manual</button>
+            <button style={modo === 'csv' ? btnPrimary : btnGhost} onClick={() => setModo(modo === 'csv' ? null : 'csv')}><UploadCloud size={14} /> Importar reporte (CSV)</button>
           </div>
-          {data.plataformas.map((p) => (
-            <Row
-              key={p.id}
-              title={p.nombre}
-              stats={[
-                { label: 'servicio', value: `${num(p.comisionServicio)}%` },
-                { label: 'publicidad', value: `${num(p.comisionPublicidad)}%` },
-              ]}
-              actions={
-                <>
-                  <IconBtn icon={Pencil} onClick={() => setPlatDraft({ ...p })} title="Editar" />
-                  <IconBtn icon={Trash2} onClick={() => removePlat(p.id)} tone="red" title="Eliminar" />
-                </>
-              }
-            />
-          ))}
-          {platDraft && (
-            <div style={{ ...receiptStyle, marginTop: 10 }}>
-              <div className="form-row">
-                <Field label="Nombre de la plataforma"><input style={inputStyle} placeholder="Ej: Uber Eats" value={platDraft.nombre} onChange={(e) => setPlatDraft({ ...platDraft, nombre: e.target.value })} /></Field>
-                <Field label="Comisión servicio (%)"><input style={inputStyle} type="number" placeholder="25" value={platDraft.comisionServicio} onChange={(e) => setPlatDraft({ ...platDraft, comisionServicio: e.target.value })} /></Field>
-                <Field label="Comisión publicidad (%)"><input style={inputStyle} type="number" placeholder="5" value={platDraft.comisionPublicidad} onChange={(e) => setPlatDraft({ ...platDraft, comisionPublicidad: e.target.value })} /></Field>
-              </div>
-              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                <button style={btnPrimary} onClick={savePlat}><Check size={14} /> Guardar</button>
-                <button style={btnGhost} onClick={() => setPlatDraft(null)}><X size={14} /> Cancelar</button>
+
+          {importDone > 0 && (
+            <div style={{ ...cardStyle, background: COLORS.greenDim, borderColor: '#86EFAC', display: 'flex', alignItems: 'center', gap: 8, color: COLORS.greenDark, fontWeight: 600, fontSize: 13 }}>
+              <CheckCircle2 size={16} /> Se importaron {importDone} ventas de {activePlat.nombre} correctamente.
+            </div>
+          )}
+
+          {modo === 'manual' && (
+            <div style={cardStyle} className="fade-up">
+              <div className="form-row" style={{ alignItems: 'end' }}>
+                <Field label="Producto">
+                  <select style={inputStyle} value={venta.productoId} onChange={(e) => setVenta({ ...venta, productoId: e.target.value })}>
+                    {data.productos.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                  </select>
+                </Field>
+                <Field label="Cantidad"><input style={inputStyle} type="number" placeholder="1" value={venta.cantidad} onChange={(e) => setVenta({ ...venta, cantidad: e.target.value })} /></Field>
+                <Field label="Fecha"><input style={inputStyle} type="date" value={venta.fecha} onChange={(e) => setVenta({ ...venta, fecha: e.target.value })} /></Field>
+                <button style={{ ...btnPrimary, justifyContent: 'center' }} onClick={registrarVenta}><Plus size={14} /> Registrar</button>
               </div>
             </div>
           )}
-          {!platDraft && <button style={{ ...btnGhostSmall, marginTop: 4 }} onClick={startNewPlat}><Plus size={13} /> Plataforma</button>}
-        </div>
-      )}
 
-      <div style={cardStyle}>
-        <div className="form-row" style={{ alignItems: 'end' }}>
-          <Field label="Producto">
-            <select style={inputStyle} value={venta.productoId} onChange={(e) => setVenta({ ...venta, productoId: e.target.value })}>
-              {data.productos.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-            </select>
-          </Field>
-          <Field label="Plataforma">
-            <select style={inputStyle} value={venta.plataformaId} onChange={(e) => setVenta({ ...venta, plataformaId: e.target.value })}>
-              {data.plataformas.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-            </select>
-          </Field>
-          <Field label="Cantidad"><input style={inputStyle} type="number" placeholder="1" value={venta.cantidad} onChange={(e) => setVenta({ ...venta, cantidad: e.target.value })} /></Field>
-          <Field label="Fecha"><input style={inputStyle} type="date" value={venta.fecha} onChange={(e) => setVenta({ ...venta, fecha: e.target.value })} /></Field>
-          <button style={{ ...btnPrimary, justifyContent: 'center' }} onClick={registrarVenta}><Plus size={14} /> Registrar</button>
-        </div>
-      </div>
+          {modo === 'csv' && (
+            <div style={cardStyle} className="fade-up">
+              {!importRows ? (
+                <>
+                  <div style={{ fontSize: 12, color: COLORS.ink3, marginBottom: 12 }}>
+                    Subí el reporte de ventas de <strong>{activePlat.nombre}</strong>. Vamos a cruzar los nombres de producto con tus recetas.
+                  </div>
+                  <label style={{ ...btnGhostSmall, display: 'inline-flex', cursor: 'pointer' }}>
+                    <UploadCloud size={13} /> Elegir archivo CSV
+                    <input type="file" accept=".csv" onChange={onFileSelected} style={{ display: 'none' }} />
+                  </label>
+                </>
+              ) : (
+                <>
+                  <div className="form-row">
+                    <Field label="Columna con el producto">
+                      <select style={inputStyle} value={colProducto} onChange={(e) => setColProducto(e.target.value)}>
+                        <option value="">Elegir columna...</option>
+                        {importHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Columna con la cantidad (opcional)">
+                      <select style={inputStyle} value={colCantidad} onChange={(e) => setColCantidad(e.target.value)}>
+                        <option value="">Cada fila es 1 unidad</option>
+                        {importHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Columna con la fecha (opcional)">
+                      <select style={inputStyle} value={colFecha} onChange={(e) => setColFecha(e.target.value)}>
+                        <option value="">Usar una fecha fija</option>
+                        {importHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
+                      </select>
+                    </Field>
+                    {!colFecha && <Field label="Fecha para todo el archivo"><input style={inputStyle} type="date" value={fechaFija} onChange={(e) => setFechaFija(e.target.value)} /></Field>}
+                    <Field label="Columna con el monto total (opcional)">
+                      <select style={inputStyle} value={colPrecio} onChange={(e) => setColPrecio(e.target.value)}>
+                        <option value="">Usar el precio del producto</option>
+                        {importHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
+                      </select>
+                    </Field>
+                  </div>
 
-      {data.ventas.length === 0 ? (
-        <EmptyState text="Todavía no hay ventas registradas." />
-      ) : (
-        <div>
-          {data.ventas.slice(0, 40).map((v) => {
-            const producto = data.productos.find((p) => p.id === v.productoId);
-            const plat = data.plataformas.find((p) => p.id === v.plataformaId);
-            if (!producto || !plat) return null;
-            const bruto = v.precioUnit * v.cantidad;
-            const comision = bruto * (comisionPct(plat) / 100);
-            const neto = bruto - comision;
-            return (
-              <Row
-                key={v.id}
-                title={`${producto.nombre} × ${v.cantidad}`}
-                meta={v.fecha}
-                stats={[
-                  { label: 'plataforma', value: plat.nombre },
-                  { label: 'ingreso neto', value: money(neto) },
-                ]}
-                actions={<IconBtn icon={Trash2} onClick={() => eliminarVenta(v)} tone="red" title="Eliminar" />}
-              />
-            );
-          })}
-        </div>
+                  {colProducto && (
+                    <div style={{ marginTop: 16 }}>
+                      <div style={{ fontSize: 12, color: COLORS.ink3, marginBottom: 8 }}>
+                        Vista previa — {previewRows.length} filas, <strong style={{ color: COLORS.greenDark }}>{matchedCount} con receta encontrada</strong>{previewRows.length - matchedCount > 0 && <> · {previewRows.length - matchedCount} sin coincidencia, elegí el producto manualmente abajo</>}.
+                      </div>
+                      {previewRows.slice(0, 60).map((r, i) => (
+                        <Row
+                          key={i}
+                          title={r.nombre || '(sin nombre)'}
+                          meta={r.fecha}
+                          stats={[
+                            { label: 'cantidad', value: r.cantidad || '—' },
+                            ...(colPrecio ? [{ label: 'monto', value: r.precioOverride !== null ? money(r.precioOverride) : '— (usa precio del producto)' }] : []),
+                          ]}
+                          actions={
+                            r.producto ? (
+                              <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: COLORS.greenDark, fontSize: 11.5, fontWeight: 600 }}><CheckCircle2 size={13} /> {r.producto.nombre}</span>
+                            ) : (
+                              <select style={{ ...inputStyle, width: 170, fontSize: 12 }} value={manualMatch[i] || ''} onChange={(e) => setManualMatch({ ...manualMatch, [i]: e.target.value })}>
+                                <option value="">sin coincidencia</option>
+                                {data.productos.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                              </select>
+                            )
+                          }
+                        />
+                      ))}
+                      {previewRows.length > 60 && <div style={{ fontSize: 11.5, color: COLORS.ink4, marginTop: 4 }}>...y {previewRows.length - 60} filas más (se importan todas, solo no se muestran todas aquí).</div>}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+                    <button style={btnPrimary} onClick={confirmImport} disabled={matchedCount === 0}><Check size={14} /> Importar {matchedCount || ''} ventas</button>
+                    <button style={btnGhost} onClick={closeModo}><X size={14} /> Cancelar</button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {ventasPlataforma.length === 0 ? (
+            <EmptyState text={`Todavía no hay ventas registradas en ${activePlat.nombre}.`} />
+          ) : (
+            <div>
+              {ventasPlataforma.slice(0, 60).map((v) => {
+                const producto = data.productos.find((p) => p.id === v.productoId);
+                if (!producto) return null;
+                const bruto = v.precioUnit * v.cantidad;
+                const neto = bruto - bruto * (comisionPct(activePlat) / 100);
+                return (
+                  <Row
+                    key={v.id}
+                    title={`${producto.nombre} × ${v.cantidad}`}
+                    meta={v.fecha}
+                    stats={[{ label: 'ingreso neto', value: money(neto) }]}
+                    actions={<IconBtn icon={Trash2} onClick={() => eliminarVenta(v)} tone="red" title="Eliminar" />}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -1933,31 +1962,39 @@ function FinanzasTab({ data, setData, costoProducto, comisionPct }) {
   });
   const gastosOperativosTotal = gastosFiltrados.reduce((sum, g) => sum + num(g.monto), 0);
 
-  let ingresoBruto = 0, comisionesTotal = 0, cogs = 0;
+  let ingresoBruto = 0, comisionServicioTotal = 0, comisionPublicidadTotal = 0, cogs = 0;
   const porPlataforma = {};
   const porProducto = {};
+  const porDia = {};
 
   ventasFiltradas.forEach((v) => {
     const producto = data.productos.find((p) => p.id === v.productoId);
     const plat = data.plataformas.find((p) => p.id === v.plataformaId);
     if (!producto || !plat) return;
     const bruto = v.precioUnit * v.cantidad;
-    const comision = bruto * (comisionPct(plat) / 100);
+    const comisionServicio = bruto * (num(plat.comisionServicio) / 100);
+    const comisionPublicidad = bruto * (num(plat.comisionPublicidad) / 100);
+    const comision = comisionServicio + comisionPublicidad;
     const neto = bruto - comision;
     const costo = costoProducto(producto) * v.cantidad;
     const utilidad = neto - costo;
 
-    ingresoBruto += bruto; comisionesTotal += comision; cogs += costo;
+    ingresoBruto += bruto; comisionServicioTotal += comisionServicio; comisionPublicidadTotal += comisionPublicidad; cogs += costo;
 
-    if (!porPlataforma[plat.id]) porPlataforma[plat.id] = { nombre: plat.nombre, ventas: 0, bruto: 0, comision: 0, neto: 0, utilidad: 0 };
+    if (!porPlataforma[plat.id]) porPlataforma[plat.id] = { nombre: plat.nombre, ventas: 0, bruto: 0, comisionServicio: 0, comisionPublicidad: 0, neto: 0, utilidad: 0 };
     const pp = porPlataforma[plat.id];
-    pp.ventas += v.cantidad; pp.bruto += bruto; pp.comision += comision; pp.neto += neto; pp.utilidad += utilidad;
+    pp.ventas += v.cantidad; pp.bruto += bruto; pp.comisionServicio += comisionServicio; pp.comisionPublicidad += comisionPublicidad; pp.neto += neto; pp.utilidad += utilidad;
 
     if (!porProducto[producto.id]) porProducto[producto.id] = { nombre: producto.nombre, unidades: 0, utilidad: 0, neto: 0 };
     const pr = porProducto[producto.id];
     pr.unidades += v.cantidad; pr.utilidad += utilidad; pr.neto += neto;
+
+    if (!porDia[v.fecha]) porDia[v.fecha] = { fecha: v.fecha, bruto: 0, comision: 0, neto: 0, costo: 0, utilidad: 0 };
+    const pd = porDia[v.fecha];
+    pd.bruto += bruto; pd.comision += comision; pd.neto += neto; pd.costo += costo; pd.utilidad += utilidad;
   });
 
+  const comisionesTotal = comisionServicioTotal + comisionPublicidadTotal;
   const ingresoNeto = ingresoBruto - comisionesTotal;
   const utilidadBruta = ingresoNeto - cogs;
   const margenGlobal = ingresoNeto ? (utilidadBruta / ingresoNeto) * 100 : null;
@@ -1967,6 +2004,7 @@ function FinanzasTab({ data, setData, costoProducto, comisionPct }) {
   const utilidadNeta = utilidadBruta - costosFijosPeriodo - gastosOperativosTotal;
   const rankingProductos = Object.values(porProducto).sort((a, b) => b.utilidad - a.utilidad);
   const tablaPlataformas = Object.values(porPlataforma).sort((a, b) => b.neto - a.neto);
+  const tablaDias = Object.values(porDia).sort((a, b) => b.fecha.localeCompare(a.fecha));
 
   const insumosBajos = data.insumos
     .map((ins) => {
@@ -2016,7 +2054,8 @@ function FinanzasTab({ data, setData, costoProducto, comisionPct }) {
         <>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
             <Kpi label="Ingreso bruto" value={money(ingresoBruto)} />
-            <Kpi label="Comisiones pagadas" value={money(comisionesTotal)} tone="redDark" />
+            <Kpi label="Comisión de servicio" value={money(comisionServicioTotal)} tone="redDark" />
+            <Kpi label="Comisión de publicidad" value={money(comisionPublicidadTotal)} tone="redDark" />
             <Kpi label="Ingreso neto" value={money(ingresoNeto)} />
             <Kpi label="Costo de insumos" value={money(cogs)} tone="redDark" />
             <Kpi label="Utilidad bruta" value={money(utilidadBruta)} tone={utilidadBruta >= 0 ? 'greenDark' : 'redDark'} />
@@ -2041,9 +2080,26 @@ function FinanzasTab({ data, setData, costoProducto, comisionPct }) {
               key={i}
               title={<>{p.nombre} <span style={{ color: COLORS.ink4, fontWeight: 400 }}>({p.ventas}u)</span></>}
               stats={[
+                { label: 'ingreso bruto', value: money(p.bruto) },
+                { label: 'comisión servicio', value: money(p.comisionServicio), tone: 'redDark' },
+                { label: 'comisión publicidad', value: money(p.comisionPublicidad), tone: 'redDark' },
                 { label: 'ingreso neto', value: money(p.neto) },
-                { label: 'comisión pagada', value: money(p.comision), tone: 'redDark' },
                 { label: 'utilidad', value: money(p.utilidad), tone: p.utilidad >= 0 ? 'greenDark' : 'redDark' },
+              ]}
+            />
+          ))}
+
+          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, margin: '22px 0 10px' }}>Por día</div>
+          {tablaDias.map((d, i) => (
+            <Row
+              key={i}
+              title={d.fecha}
+              stats={[
+                { label: 'ingreso bruto', value: money(d.bruto) },
+                { label: 'comisiones', value: money(d.comision), tone: 'redDark' },
+                { label: 'ingreso neto', value: money(d.neto) },
+                { label: 'costo insumos', value: money(d.costo), tone: 'redDark' },
+                { label: 'utilidad', value: money(d.utilidad), tone: d.utilidad >= 0 ? 'greenDark' : 'redDark' },
               ]}
             />
           ))}
@@ -2058,8 +2114,7 @@ function FinanzasTab({ data, setData, costoProducto, comisionPct }) {
                 { label: 'ingreso neto', value: money(p.neto) },
                 { label: 'utilidad', value: money(p.utilidad), tone: p.utilidad >= 0 ? 'greenDark' : 'redDark' },
               ]}
-            />
-          ))}
+            />          ))}
         </>
       )}
     </div>
